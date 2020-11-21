@@ -12,7 +12,8 @@ from progress.bar import IncrementalBar
 import donkeycar as dk
 from donkeycar.management.joystick_creator import CreateJoystick
 from donkeycar.management.tub import TubManager
-from donkeycar.pipeline.training import train
+from donkeycar.parts.tflite import keras_model_to_tflite
+from donkeycar.parts.train import train
 from donkeycar.utils import *
 
 PACKAGE_PATH = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -89,12 +90,10 @@ class CreateCar(BaseCommand):
         app_template_path = os.path.join(TEMPLATES_PATH, template+'.py')
         config_template_path = os.path.join(TEMPLATES_PATH, 'cfg_' + template + '.py')
         myconfig_template_path = os.path.join(TEMPLATES_PATH, 'myconfig.py')
-        train_template_path = os.path.join(TEMPLATES_PATH, 'train.py')
         calibrate_template_path = os.path.join(TEMPLATES_PATH, 'calibrate.py')
         car_app_path = os.path.join(path, 'manage.py')
         car_config_path = os.path.join(path, 'config.py')
         mycar_config_path = os.path.join(path, 'myconfig.py')
-        train_app_path = os.path.join(path, 'train.py')
         calibrate_app_path = os.path.join(path, 'calibrate.py')        
         
         if os.path.exists(car_app_path) and not overwrite:
@@ -109,13 +108,6 @@ class CreateCar(BaseCommand):
         else:
             print("Copying car config defaults. Adjust these before starting your car.")
             shutil.copyfile(config_template_path, car_config_path)
- 
-        if os.path.exists(train_app_path) and not overwrite:
-            print('Train already exists. Delete it and rerun createcar to replace.')
-        else:
-            print("Copying train script. Adjust these before starting your car.")
-            shutil.copyfile(train_template_path, train_app_path)
-            os.chmod(train_app_path, stat.S_IRWXU)
 
         if os.path.exists(calibrate_app_path) and not overwrite:
             print('Calibrate already exists. Delete it and rerun createcar to replace.')
@@ -425,6 +417,23 @@ class ShowPredictionPlots(BaseCommand):
 
 class Train(BaseCommand):
 
+    def train(self, cfg, tubs, model, model_type):
+        model_name, model_ext = os.path.splitext(model)
+        is_tflite = model_ext == '.tflite'
+        if is_tflite:
+            model = f'{model_name}.h5'
+
+        if not model_type:
+            model_type = cfg.DEFAULT_MODEL_TYPE
+
+        tubs = tubs.split(',')
+        data_paths = [Path(os.path.expanduser(tub)).absolute().as_posix() for tub in tubs]
+        output_path = os.path.expanduser(model)
+        history = train(cfg, data_paths, output_path, model_type)
+        if is_tflite:
+            tflite_model_path = f'{os.path.splitext(output_path)[0]}.tflite'
+            keras_model_to_tflite(output_path, tflite_model_path)
+
     def parse_args(self, args):
         parser = argparse.ArgumentParser(prog='train', usage='%(prog)s [options]')
         parser.add_argument('--tub', nargs='+', help='tub data for training')
@@ -438,7 +447,7 @@ class Train(BaseCommand):
         args = self.parse_args(args)
         args.tub = ','.join(args.tub)
         cfg = load_config(args.config)
-        train(cfg, args.tub, args.model, args.type)
+        self.train(cfg, args.tub, args.model, args.type)
 
 
 def execute_from_command_line():
