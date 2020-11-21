@@ -1,4 +1,4 @@
-__version__ = '4.0.1-dev'
+__version__ = '4.1.0-dev'
 
 print('using donkey v{} ...'.format(__version__))
 
