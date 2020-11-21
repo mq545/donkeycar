@@ -436,8 +436,7 @@ class Train(BaseCommand):
             model_type = cfg.DEFAULT_MODEL_TYPE
 
         tubs = tubs.split(',')
-        data_paths = [Path(os.path.expanduser(tub)).absolute().as_posix()
-                      for tub in tubs]
+        data_paths = [Path(os.path.expanduser(tub)).absolute().as_posix() for tub in tubs]
         output_path = os.path.expanduser(model)
         history = train(cfg, data_paths, output_path, model_type)
         if is_tflite:
