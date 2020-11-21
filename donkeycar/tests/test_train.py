@@ -3,7 +3,7 @@ import pytest
 import tarfile
 import os
 
-from donkeycar.templates.train import train
+from donkeycar.parts.train import train
 from donkeycar.config import Config
 
 

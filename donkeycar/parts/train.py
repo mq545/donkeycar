@@ -1,15 +1,3 @@
-#!/usr/bin/env python3
-"""
-Scripts to train a keras model using tensorflow.
-Basic usage should feel familiar: python train_v2.py --model models/mypilot
-
-Usage:
-    train.py [--tubs=tubs] (--model=<model>) [--type=(linear|inferred|tensorrt_linear|tflite_linear)]
-
-Options:
-    -h --help              Show this screen.
-"""
-
 import os
 import random
 from pathlib import Path
@@ -188,28 +176,3 @@ def train(cfg, tub_paths, output_path, model_type):
     return history
 
 
-def main():
-    args = docopt(__doc__)
-    cfg = donkeycar.load_config()
-    tubs = args['--tubs']
-    model = args['--model']
-    model_type = args['--type']
-    model_name, model_ext = os.path.splitext(model)
-    is_tflite = model_ext == '.tflite'
-    if is_tflite:
-        model = f'{model_name}.h5'
-
-    if not model_type:
-        model_type = cfg.DEFAULT_MODEL_TYPE
-
-    tubs = tubs.split(',')
-    data_paths = [Path(os.path.expanduser(tub)).absolute().as_posix() for tub in tubs]
-    output_path = os.path.expanduser(model)
-    history = train(cfg, data_paths, output_path, model_type)
-    if is_tflite:
-        tflite_model_path = f'{os.path.splitext(output_path)[0]}.tflite'
-        keras_model_to_tflite(output_path, tflite_model_path)
-
-
-if __name__ == "__main__":
-    main()
