@@ -37,7 +37,7 @@ class LazyRecord(object):
         self.config = config
 
     def get_X_Y(self, model):
-        return model.get_X_Y(self)
+        return model.get_x_y(self)
 
     def get_entry(self, key):
         val = self._record[key]
