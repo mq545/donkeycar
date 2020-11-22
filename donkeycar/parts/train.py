@@ -76,32 +76,29 @@ class TubSequence(Sequence):
             records.append(record)
             count += 1
 
-        X = []
-        Y = []
+        x = []
+        y = []
         # collecting across the whole batch
         for record in records:
-            single_X, single_Y = record.get_X_Y(self.keras_model)
-            X.append(single_X)
-            Y.append(single_Y)
+            single_x, single_y = record.get_X_Y(self.keras_model)
+            x.append(single_x)
+            y.append(single_y)
 
-        # now we have to transpose as keras expects an array of batch size
-        # for each entry in X and y
-        X = np.array(X)
-        Y = np.array(Y)
-
-        # reshape X, Y if required
-        def reshape(Z):
-            if Z.shape[1] > 1:
-                return [Z[:, i] for i in range(Z.shape[1])]
-            elif Z.shape[1] == 1:
-                return np.squeeze(Z, axis=1)
+        # reshape X, Y
+        def reshape(z):
+            dim = len(z[0])
+            if dim == 1:
+                return np.array([zi[0] for zi in z])
             else:
-                raise ValueError('Cannot process empty record data')
+                ret_z = []
+                for j in range(dim):
+                    z_j = np.array([zi[j] for zi in z])
+                    ret_z.append(z_j)
+                return ret_z
 
-        X = reshape(X)
-        Y = reshape(Y)
-
-        return X, Y
+        x_res = reshape(x)
+        y_res = reshape(y)
+        return x_res, y_res
 
 
 class ImagePreprocessing(Sequence):
