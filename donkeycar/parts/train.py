@@ -86,9 +86,22 @@ class TubSequence(Sequence):
 
         # now we have to transpose as keras expects an array of batch size
         # for each entry in X and y
-        X_ret = X
-        y_ret = np.array(Y).T
-        return X_ret, y_ret
+        X = np.array(X)
+        Y = np.array(Y)
+
+        # reshape X, Y if required
+        def reshape(Z):
+            if Z.shape[1] > 1:
+                return [Z[:, i] for i in range(Z.shape[1])]
+            elif Z.shape[1] == 1:
+                return np.squeeze(Z, axis=1)
+            else:
+                raise ValueError('Cannot process empty record data')
+
+        X = reshape(X)
+        Y = reshape(Y)
+
+        return X, Y
 
 
 class ImagePreprocessing(Sequence):
