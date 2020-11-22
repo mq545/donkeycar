@@ -250,9 +250,10 @@ class KerasInferred(KerasPilot):
         steering = outputs[0]
         return steering[0], dk.utils.throttle(steering[0])
 
-    def lazy_record_transform_y(self, record):
-        y = record.get_entry('user/angle')
-        return y
+    def get_X_Y(self, record):
+        X = record.get_entry('cam/image_array')
+        Y = record.get_entry('user/angle')
+        return X, Y
 
 
 class KerasIMU(KerasPilot):
