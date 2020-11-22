@@ -11,7 +11,6 @@ include one or more models to help direct the vehicles motion.
 from abc import ABC, abstractmethod
 import numpy as np
 
-import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.layers import Input, Dense
 from tensorflow.keras.layers import Convolution2D, MaxPooling2D, BatchNormalization
@@ -128,7 +127,7 @@ class KerasPilot(ABC):
         return hist
 
     def get_X_Y(self, record):
-        X = record.get_entry('cam/image_array')
+        X = [record.get_entry('cam/image_array')]
         Y = [record.get_entry('user/angle'), record.get_entry('user/throttle')]
         return X, Y
 
@@ -176,10 +175,10 @@ class KerasCategorical(KerasPilot):
         X = record.get_entry('cam/image_array')
         usr_angle = record.get_entry('user/angle')
         usr_throttle = record.get_entry('user/throttle')
-        R = self.config.MODEL_CATEGORICAL_MAX_THROTTLE_RANGE
+        R = self.throttle_range
         angle = linear_bin(usr_angle, N=15, offset=1, R=2.0)
         throttle = linear_bin(usr_throttle, N=20, offset=0.0, R=R)
-        return X, [angle, throttle]
+        return [X], [angle, throttle]
 
 
 class KerasLinear(KerasPilot):
@@ -222,7 +221,7 @@ class KerasInferred(KerasPilot):
     def get_X_Y(self, record):
         X = record.get_entry('cam/image_array')
         Y = record.get_entry('user/angle')
-        return X, Y
+        return [X], [Y]
 
 
 class KerasIMU(KerasPilot):
