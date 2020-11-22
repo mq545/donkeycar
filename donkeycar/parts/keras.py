@@ -23,7 +23,7 @@ from tensorflow.keras.backend import concatenate
 from tensorflow.keras.models import Model, Sequential
 
 import donkeycar as dk
-from donkeycar.utils import normalize_image
+from donkeycar.utils import normalize_image, linear_bin
 
 ONE_BYTE_SCALE = 1.0 / 255.0
 
@@ -127,6 +127,11 @@ class KerasPilot(ABC):
                         validation_steps=steps*(1.0 - train_split))
         return hist
 
+    def get_X_Y(self, record):
+        X = record.get_entry('cam/image_array')
+        Y = [record.get_entry('user/angle'), record.get_entry('user/throttle')]
+        return X, Y
+
 
 class KerasCategorical(KerasPilot):
     """
@@ -167,6 +172,15 @@ class KerasCategorical(KerasPilot):
         angle = dk.utils.linear_unbin(angle_binned)
         return angle, throttle
 
+    def get_X_Y(self, record):
+        X = record.get_entry('cam/image_array')
+        usr_angle = record.get_entry('user/angle')
+        usr_throttle = record.get_entry('user/throttle')
+        R = self.config.MODEL_CATEGORICAL_MAX_THROTTLE_RANGE
+        angle = linear_bin(usr_angle, N=15, offset=1, R=2.0)
+        throttle = linear_bin(usr_throttle, N=20, offset=0.0, R=R)
+        return X, [angle, throttle]
+
 
 class KerasLinear(KerasPilot):
     """
@@ -204,6 +218,11 @@ class KerasInferred(KerasPilot):
         outputs = self.model.predict(img_arr)
         steering = outputs[0]
         return steering[0], dk.utils.throttle(steering[0])
+
+    def get_X_Y(self, record):
+        X = record.get_entry('cam/image_array')
+        Y = record.get_entry('user/angle')
+        return X, Y
 
 
 class KerasIMU(KerasPilot):
