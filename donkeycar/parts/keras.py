@@ -126,10 +126,18 @@ class KerasPilot(ABC):
                         validation_steps=steps*(1.0 - train_split))
         return hist
 
-    def get_X_Y(self, record):
-        X = [record.get_entry('cam/image_array')]
-        Y = [record.get_entry('user/angle'), record.get_entry('user/throttle')]
-        return X, Y
+    def get_x_y(self, record):
+        """
+        Return X, Y for a single record required in training where X is the
+        array of input variables and Y is the array of output variables
+
+        :param record:  LazyRecord with that data
+        :return:        2-Tuple of arrays containing X and Y, typically X is
+                        the image array and y is [angle, throttle]
+        """
+        x = [record.get_entry('cam/image_array')]
+        y = [record.get_entry('user/angle'), record.get_entry('user/throttle')]
+        return x, y
 
 
 class KerasCategorical(KerasPilot):
@@ -171,14 +179,12 @@ class KerasCategorical(KerasPilot):
         angle = dk.utils.linear_unbin(angle_binned)
         return angle, throttle
 
-    def get_X_Y(self, record):
-        X = record.get_entry('cam/image_array')
-        usr_angle = record.get_entry('user/angle')
-        usr_throttle = record.get_entry('user/throttle')
+    def get_x_y(self, record):
+        x, y = super().get_x_y(record)
         R = self.throttle_range
-        angle = linear_bin(usr_angle, N=15, offset=1, R=2.0)
-        throttle = linear_bin(usr_throttle, N=20, offset=0.0, R=R)
-        return [X], [angle, throttle]
+        angle = linear_bin(y[0], N=15, offset=1, R=2.0)
+        throttle = linear_bin(y[1], N=20, offset=0.0, R=R)
+        return x, [angle, throttle]
 
 
 class KerasLinear(KerasPilot):
@@ -218,10 +224,10 @@ class KerasInferred(KerasPilot):
         steering = outputs[0]
         return steering[0], dk.utils.throttle(steering[0])
 
-    def get_X_Y(self, record):
-        X = record.get_entry('cam/image_array')
-        Y = record.get_entry('user/angle')
-        return [X], [Y]
+    def get_x_y(self, record):
+        x = record.get_entry('cam/image_array')
+        y = record.get_entry('user/angle')
+        return [x], [y]
 
 
 class KerasIMU(KerasPilot):
@@ -263,7 +269,6 @@ class KerasIMU(KerasPilot):
         self.model.compile(optimizer=self.optimizer, loss='mse')
         
     def inference(self, img_arr, other_arr):
-        # TODO: would be nice to take a vector input array.
         img_arr = img_arr.reshape((1,) + img_arr.shape)
         imu_arr = np.array(other_arr).reshape(1, self.num_imu_inputs)
         outputs = self.model.predict([img_arr, imu_arr])
