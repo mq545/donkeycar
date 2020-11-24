@@ -33,24 +33,79 @@ class TubDataset(object):
 class LazyRecord(object):
 
     def __init__(self, record, config):
-        self._record = record
+        self.record = record
         self.config = config
 
     def get_X_Y(self, model):
         return model.get_x_y(self)
 
     def get_entry(self, key):
-        val = self._record[key]
-        if key == 'cam/image_array' and isinstance(val, str):
-            image_path = os.path.join(self._record['_image_base_path'], val)
-            image = load_image_arr(image_path, self.config)
-            norm_img = normalize_image(image)
-            self._record[key] = norm_img
-            return norm_img
+        val = self.record[key]
         return val
 
     def has_entry(self, key):
-        return key in self._record
+        return key in self.record
+
+    def _set_entry(self, key, val):
+        self.record[key] = val
+
+
+class RecordTransformer(LazyRecord):
+
+    def __init__(self, lazy_record, key, cache=False):
+        self.lazy_record = lazy_record
+        self.config = lazy_record.config
+        self.key = key
+        self.cache = cache
+
+    def get_entry(self, key):
+        val = self.lazy_record.get_entry(key)
+        if key == self.key:
+            val_trans = self.transform(val)
+            if self.cache:
+                self._set_entry(key, val_trans)
+            return val_trans
+        else:
+            return val
+
+    def _set_entry(self, key, val):
+        self.lazy_record._set_entry(key, val)
+
+    def transform(self, val):
+        return val
+
+    @classmethod
+    def create_transformation_stack(cls, transformations, lazy_record):
+        record = lazy_record
+        for transformation in transformations:
+            record = transformation(record)
+        return record
+
+
+class ImageReader(RecordTransformer):
+    def __init__(self, lazy_record):
+        super().__init__(lazy_record, 'cam/image_array', True)
+
+    def transform(self, val):
+        base_path = self.get_entry('_image_base_path')
+        if type(val) is str:
+            # only transform once into numpy img, when value is path to image
+            image_path = os.path.join(base_path, val)
+            image = load_image_arr(image_path, self.config)
+            return image
+        else:
+            return val
+
+
+class ImageNormalizer(RecordTransformer):
+    def __init__(self, lazy_record):
+        super().__init__(lazy_record, 'cam/image_array', False)
+
+    def transform(self, val):
+        return normalize_image(val)
+
+
+DEFAULT_STACK = [ImageReader, ImageNormalizer]
 
 
 class TubSequence(Sequence):
@@ -73,7 +128,9 @@ class TubSequence(Sequence):
                 break
 
             record = LazyRecord(self.records[i], self.config)
-            records.append(record)
+            record_out = RecordTransformer.create_transformation_stack(
+                            DEFAULT_STACK, record)
+            records.append(record_out)
             count += 1
 
         x = []
@@ -138,7 +195,8 @@ def train(cfg, tub_paths, output_path, model_type):
         print(kl.model.summary())
 
     batch_size = cfg.BATCH_SIZE
-    dataset = TubDataset(tub_paths, test_size=(1. - cfg.TRAIN_TEST_SPLIT))
+    dataset = TubDataset(tub_paths, test_size=(1. - cfg.TRAIN_TEST_SPLIT),
+                         shuffle=True)
     training_records, validation_records = dataset.train_test_split()
     print('Records # Training %s' % len(training_records))
     print('Records # Validation %s' % len(validation_records))
