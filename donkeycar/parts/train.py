@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
+from abc import ABC, abstractmethod
 from tensorflow.python.keras.utils.data_utils import Sequence
 from donkeycar.parts.tub_v2 import Tub
 from donkeycar.utils import get_model_by_type, load_image_arr, \
@@ -21,44 +21,63 @@ class TubDataset(object):
         self.records = list()
 
     def train_test_split(self):
-        print('Loading tubs from paths %s' % (self.tub_paths))
+        print('Loading tubs from paths %s' % self.tub_paths)
         for tub in self.tubs:
             for record in tub:
                 record['_image_base_path'] = tub.images_base_path
                 self.records.append(record)
 
-        return train_test_split(self.records, shuffle=self.shuffle, test_size=self.test_size)
+        return train_test_split(self.records, shuffle=self.shuffle,
+                                test_size=self.test_size)
 
 
 class LazyRecord(object):
+    """ Lazy record which wraps around record dictionary. There is no
+        additional functionality here, it's all in the derived classes. """
 
     def __init__(self, record, config):
         self.record = record
         self.config = config
 
-    def get_X_Y(self, model):
+    def get_x_y(self, model):
+        """ Dispatch returning of X, Y to the model which will call
+            get_entry() on the LazyRecord and from there drive the
+            transformations. """
         return model.get_x_y(self)
 
     def get_entry(self, key):
+        """ Get entry from record"""
         val = self.record[key]
         return val
 
     def has_entry(self, key):
+        """ Check if record available """
         return key in self.record
 
     def _set_entry(self, key, val):
+        """ Set entry - should only be called in derived classes """
         self.record[key] = val
 
 
-class RecordTransformer(LazyRecord):
+class RecordTransformer(LazyRecord, ABC):
+    """ Base class for record transformations which can be stacked on top of
+        each other """
 
     def __init__(self, lazy_record, key, cache=False):
+        """
+        :param lazy_record:     reference lazy record which holds the data
+        :param key:             key on which the transformation should apply
+        :param cache:           if transformed record should be put back for
+                                performance - this destroys the original record
+        """
         self.lazy_record = lazy_record
         self.config = lazy_record.config
         self.key = key
         self.cache = cache
 
     def get_entry(self, key):
+        """ Override the base class to allow transforming and caching of
+            transformed entries. """
         val = self.lazy_record.get_entry(key)
         if key == self.key:
             val_trans = self.transform(val)
@@ -69,13 +88,19 @@ class RecordTransformer(LazyRecord):
             return val
 
     def _set_entry(self, key, val):
+        """ There is only one record in the chain of transformations so this
+            needs to get pushed through to the bottom. """
         self.lazy_record._set_entry(key, val)
 
+    @abstractmethod
     def transform(self, val):
-        return val
+        """ This has to be implemented in derived classes"""
+        pass
 
     @classmethod
-    def create_transformation_stack(cls, transformations, lazy_record):
+    def create_stack(cls, transformations, lazy_record):
+        """ Method to create a stack of transformations on top of the
+            LazyRecord """
         record = lazy_record
         for transformation in transformations:
             record = transformation(record)
@@ -83,6 +108,7 @@ class RecordTransformer(LazyRecord):
 
 
 class ImageReader(RecordTransformer):
+    """ Convert path into image array """
     def __init__(self, lazy_record):
         super().__init__(lazy_record, 'cam/image_array', True)
 
@@ -98,13 +124,15 @@ class ImageReader(RecordTransformer):
 
 
 class ImageNormalizer(RecordTransformer):
+    """ Normalize Images from np.uint8 to np.float32. We don't want to cache
+        these as they require 4x memory. """
     def __init__(self, lazy_record):
         super().__init__(lazy_record, 'cam/image_array', False)
 
     def transform(self, val):
         return normalize_image(val)
 
-
+# Current default stack for transformation. Will be moved and made configurable.
 DEFAULT_STACK = [ImageReader, ImageNormalizer]
 
 
@@ -128,7 +156,7 @@ class TubSequence(Sequence):
                 break
 
             record = LazyRecord(self.records[i], self.config)
-            record_out = RecordTransformer.create_transformation_stack(
+            record_out = RecordTransformer.create_stack(
                             DEFAULT_STACK, record)
             records.append(record_out)
             count += 1
@@ -137,7 +165,7 @@ class TubSequence(Sequence):
         y = []
         # collecting across the whole batch
         for record in records:
-            single_x, single_y = record.get_X_Y(self.keras_model)
+            single_x, single_y = record.get_x_y(self.keras_model)
             x.append(single_x)
             y.append(single_y)
 
@@ -189,7 +217,6 @@ def train(cfg, tub_paths, output_path, model_type):
         train_type = model_type
 
     kl = get_model_by_type(train_type, cfg)
-    kl.compile()
 
     if cfg.PRINT_MODEL_SUMMARY:
         print(kl.model.summary())
@@ -206,29 +233,14 @@ def train(cfg, tub_paths, output_path, model_type):
     assert len(validation) > 0, "Not enough validation data, decrease the " \
                                 "batch size or add more data."
 
-    # Setup early stoppage callbacks
-    callbacks = [
-        EarlyStopping(monitor='val_loss', patience=cfg.EARLY_STOP_PATIENCE),
-        ModelCheckpoint(
-            filepath=output_path,
-            monitor='val_loss',
-            save_best_only=True,
-            verbose=1,
-        )
-    ]
+    history = kl.train(model_path=output_path, train_data=training,
+                       train_steps=len(training), batch_size=batch_size,
+                       validation_data=validation,
+                       validation_steps=len(validation),
+                       epochs=cfg.MAX_EPOCHS, verbose=cfg.VERBOSE_TRAIN,
+                       min_delta=cfg.MIN_DELTA,
+                       patience=cfg.EARLY_STOP_PATIENCE)
 
-    history = kl.model.fit(
-        x=training,
-        steps_per_epoch=len(training),
-        batch_size=batch_size,
-        callbacks=callbacks,
-        validation_data=validation,
-        validation_steps=len(validation),
-        epochs=cfg.MAX_EPOCHS,
-        verbose=cfg.VERBOSE_TRAIN,
-        workers=1,
-        use_multiprocessing=False
-    )
     return history
 
 
