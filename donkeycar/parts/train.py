@@ -59,7 +59,7 @@ class LazyRecord(object):
         self.record[key] = val
 
 
-class RecordTransformer(LazyRecord, ABC):
+class TransformedRecord(LazyRecord, ABC):
     """ Base class for record transformations which can be stacked on top of
         each other """
 
@@ -107,7 +107,7 @@ class RecordTransformer(LazyRecord, ABC):
         return record
 
 
-class ImageReader(RecordTransformer):
+class ImageReader(TransformedRecord):
     """ Convert path into image array """
     def __init__(self, lazy_record):
         super().__init__(lazy_record, 'cam/image_array', True)
@@ -123,7 +123,7 @@ class ImageReader(RecordTransformer):
             return val
 
 
-class ImageNormalizer(RecordTransformer):
+class ImageNormalizer(TransformedRecord):
     """ Normalize Images from np.uint8 to np.float32. We don't want to cache
         these as they require 4x memory. """
     def __init__(self, lazy_record):
@@ -156,8 +156,7 @@ class TubSequence(Sequence):
                 break
 
             record = LazyRecord(self.records[i], self.config)
-            record_out = RecordTransformer.create_stack(
-                            DEFAULT_STACK, record)
+            record_out = TransformedRecord.create_stack(DEFAULT_STACK, record)
             records.append(record_out)
             count += 1
 
