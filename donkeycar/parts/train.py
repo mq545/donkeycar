@@ -8,6 +8,7 @@ from donkeycar.utils import get_model_by_type, load_image_arr, \
 
 DEFAULT_TRANSFORMATIONS = ['ImageReader', 'ImageNormalizer']
 
+
 class TubDataset(object):
     '''
     Loads the dataset, and creates a train/test split.
