@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import imgaug.augmenters as iaa
 
 
 class Augumentations(object):
@@ -9,39 +10,30 @@ class Augumentations(object):
 
     @classmethod
     def crop(cls, left, right, top, bottom, keep_size=False):
-        '''
+        """
         The image augumentation sequence.
         Crops based on a region of interest among other things.
         left, right, top & bottom are the number of pixels to crop.
-        '''
-        import imgaug as ia
-        import imgaug.augmenters as iaa
-
-        augmentation = iaa.Sequential([
-            iaa.Crop(
-                px=(top, right, bottom, left),
-                keep_size=keep_size
-            ),
-        ])
+        """
+        augmentation = iaa.Crop(px=(top, right, bottom, left),
+                                keep_size=keep_size)
         return augmentation
 
     @classmethod
-    def trapezoidal_mask(cls, lower_left, lower_right, upper_left, upper_right, min_y, max_y):
-        '''
+    def trapezoidal_mask(cls, lower_left, lower_right, upper_left, upper_right,
+                         min_y, max_y):
+        """
         Uses a binary mask to generate a trapezoidal region of interest.
         Especially useful in filtering out uninteresting features from an
         input image.
-        '''
-        import imgaug as ia
-        import imgaug.augmenters as iaa
-
+        """
         def _transform_images(images, random_state, parents, hooks):
             # Transform a batch of images
             transformed = []
             mask = None
             for image in images:
                 if mask is None:
-                    mask = np.zeros(image.shape, dtype='int32')
+                    mask = np.zeros(image.shape, dtype=np.int32)
                     # # # # # # # # # # # # #
                     #       ul     ur          min_y
                     #
@@ -54,7 +46,8 @@ class Augumentations(object):
                         [lower_right, max_y],
                         [lower_left, max_y]
                     ]
-                    cv2.fillConvexPoly(mask, np.array(points, dtype=np.int32), [255, 255, 255])
+                    cv2.fillConvexPoly(mask, np.array(points, dtype=np.int32),
+                                       [255, 255, 255])
                     mask = np.asarray(mask, dtype='bool')
 
                 masked = np.multiply(image, mask)
@@ -66,8 +59,33 @@ class Augumentations(object):
             # No-op
             return keypoints_on_images
 
-        augmentation = iaa.Sequential([
-            iaa.Lambda(func_images=_transform_images, func_keypoints=_transform_keypoints)
-        ])
-
+        augmentation = iaa.Lambda(func_images=_transform_images,
+                                  func_keypoints=_transform_keypoints)
         return augmentation
+
+
+class ImageAugmentation:
+    def __init__(self, cfg):
+        aug_list = getattr(cfg, 'AUGMENTATIONS', [])
+        augmentations = [ImageAugmentation.create(a, cfg) for a in aug_list]
+        self.augmentations = iaa.Sequential(augmentations)
+
+    @classmethod
+    def create(cls, aug_type, config):
+        if aug_type == 'CROP':
+            return Augumentations.crop(left=config.ROI_CROP_TOP,
+                                       right=config.ROI_CROP_TOP,
+                                       bottom=config.ROI_CROP_BOTTOM,
+                                       top=config.ROI_CROP_TOP)
+        elif aug_type == 'TRAPEZE':
+            return Augumentations.trapezoidal_mask(
+                        lower_left=config.ROI_TRAPEZE_LL,
+                        lower_right=config.ROI_TRAPEZE_LR,
+                        upper_left=config.ROI_TRAPEZE_UL,
+                        upper_right=config.ROI_TRAPEZE_UR,
+                        min_y=config.ROI_TRAPEZE_MIN_Y,
+                        max_y=config.ROI_TRAPEZE_MAX_Y)
+
+    def run(self, img_arr):
+        aug_img_arr = self.augmentations.augment_image(img_arr)
+        return aug_img_arr
