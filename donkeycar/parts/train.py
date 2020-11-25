@@ -6,6 +6,7 @@ from donkeycar.parts.tub_v2 import Tub
 from donkeycar.utils import get_model_by_type, load_image_arr, \
     train_test_split, normalize_image
 
+DEFAULT_TRANSFORMATIONS = ['ImageReader', 'ImageNormalizer']
 
 class TubDataset(object):
     '''
@@ -35,9 +36,9 @@ class LazyRecord(object):
     """ Lazy record which wraps around record dictionary. There is no
         additional functionality here, it's all in the derived classes. """
 
-    def __init__(self, record, config):
+    def __init__(self, record, transforms):
         self.record = record
-        self.config = config
+        self.transforms = transforms
 
     def get_x_y(self, model):
         """ Dispatch returning of X, Y to the model which will call
@@ -46,8 +47,11 @@ class LazyRecord(object):
         return model.get_x_y(self)
 
     def get_entry(self, key):
-        """ Get entry from record"""
-        val = self.record[key]
+        """ Get entry from record and run through transformations """
+        val = self.record.get(key)
+        for transform in self.transforms:
+            val = transform.get(self.record, key, val)
+
         return val
 
     def has_entry(self, key):
@@ -59,62 +63,52 @@ class LazyRecord(object):
         self.record[key] = val
 
 
-class TransformedRecord(LazyRecord, ABC):
+class RecordTransformer(ABC):
     """ Base class for record transformations which can be stacked on top of
         each other """
 
-    def __init__(self, lazy_record, key, cache=False):
+    def __init__(self, key, config, cache=False):
         """
-        :param lazy_record:     reference lazy record which holds the data
         :param key:             key on which the transformation should apply
         :param cache:           if transformed record should be put back for
                                 performance - this destroys the original record
         """
-        self.lazy_record = lazy_record
-        self.config = lazy_record.config
+        self.config = config
         self.key = key
         self.cache = cache
 
-    def get_entry(self, key):
+    def get(self, record, key, val):
         """ Override the base class to allow transforming and caching of
             transformed entries. """
-        val = self.lazy_record.get_entry(key)
         if key == self.key:
-            val_trans = self.transform(val)
+            val_trans = self.transform(record, val)
             if self.cache:
-                self._set_entry(key, val_trans)
+                record[key] = val_trans
             return val_trans
         else:
             return val
 
-    def _set_entry(self, key, val):
-        """ There is only one record in the chain of transformations so this
-            needs to get pushed through to the bottom. """
-        self.lazy_record._set_entry(key, val)
-
     @abstractmethod
-    def transform(self, val):
+    def transform(self, record, val):
         """ This has to be implemented in derived classes"""
         pass
 
     @classmethod
-    def create_stack(cls, transformations, lazy_record):
+    def create(cls, transform_names, config):
         """ Method to create a stack of transformations on top of the
             LazyRecord """
-        record = lazy_record
-        for transformation in transformations:
-            record = transformation(record)
-        return record
+        transforms = [globals()[name](config) for name in transform_names]
+        return transforms
 
 
-class ImageReader(TransformedRecord):
+class ImageReader(RecordTransformer):
     """ Convert path into image array """
-    def __init__(self, lazy_record):
-        super().__init__(lazy_record, 'cam/image_array', True)
+    def __init__(self, config):
+        super().__init__('cam/image_array', config, True)
 
-    def transform(self, val):
-        base_path = self.get_entry('_image_base_path')
+    def transform(self, record, val):
         if type(val) is str:
+            base_path = record['_image_base_path']
             # only transform once into numpy img, when value is path to image
             image_path = os.path.join(base_path, val)
             image = load_image_arr(image_path, self.config)
@@ -123,17 +117,14 @@ class ImageReader(TransformedRecord):
             return val
 
 
-class ImageNormalizer(TransformedRecord):
+class ImageNormalizer(RecordTransformer):
     """ Normalize Images from np.uint8 to np.float32. We don't want to cache
         these as they require 4x memory. """
-    def __init__(self, lazy_record):
-        super().__init__(lazy_record, 'cam/image_array', False)
+    def __init__(self, config):
+        super().__init__('cam/image_array', config, False)
 
-    def transform(self, val):
+    def transform(self, record, val):
         return normalize_image(val)
-
-# Current default stack for transformation. Will be moved and made configurable.
-DEFAULT_STACK = [ImageReader, ImageNormalizer]
 
 
 class TubSequence(Sequence):
@@ -142,6 +133,9 @@ class TubSequence(Sequence):
         self.config = config
         self.records = records
         self.batch_size = self.config.BATCH_SIZE
+        transforms = getattr(self.config, 'RECORD_TRANSFORMATIONS',
+                             DEFAULT_TRANSFORMATIONS)
+        self.transformations = RecordTransformer.create(transforms, self.config)
 
     def __len__(self):
         return len(self.records) // self.batch_size
@@ -155,9 +149,8 @@ class TubSequence(Sequence):
             if i >= len(self.records):
                 break
 
-            record = LazyRecord(self.records[i], self.config)
-            record_out = TransformedRecord.create_stack(DEFAULT_STACK, record)
-            records.append(record_out)
+            record = LazyRecord(self.records[i], self.transformations)
+            records.append(record)
             count += 1
 
         x = []
