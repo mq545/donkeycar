@@ -86,6 +86,14 @@ class ImageAugmentation:
                         min_y=config.ROI_TRAPEZE_MIN_Y,
                         max_y=config.ROI_TRAPEZE_MAX_Y)
 
+        elif aug_type == 'MULTIPLY':
+            interval = getattr(config, 'AUG_MULTIPLY_RANGE', (0.5, 1.5))
+            return iaa.Multiply(interval)
+
+        elif aug_type == 'BLUR':
+            interval = getattr(config, 'AUG_BLUR_RANGE', (0.0, 3.0))
+            iaa.GaussianBlur(sigma=interval)
+
     def run(self, img_arr):
         aug_img_arr = self.augmentations.augment_image(img_arr)
         return aug_img_arr
