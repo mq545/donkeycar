@@ -80,15 +80,17 @@ class BatchSequence(TfSequence):
 
         # reshape X, Y
         def reshape(z):
-            dim = len(z[0])
-            if dim == 1:
-                return np.array([zi[0] for zi in z])
-            else:
+            # each entry in z could either be a single value, or a numpy
+            # array, or a tuple containing values and numpy arrays
+            if type(z[0]) is tuple:
+                dim = len(z[0])
                 ret_z = []
                 for j in range(dim):
                     z_j = np.array([zi[j] for zi in z])
                     ret_z.append(z_j)
                 return ret_z
+            else:
+                return np.array(z)
 
         x_res = reshape(x)
         y_res = reshape(y)

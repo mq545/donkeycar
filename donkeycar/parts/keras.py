@@ -135,7 +135,7 @@ class KerasPilot(ABC):
         :return:        array containing model inputs, typically called X,
                         for the standard models is is just the image
         """
-        x = [record.get_entry('cam/image_array')]
+        x = record.get_entry('cam/image_array')
         return x
 
     def lazy_record_transform_y(self, record):
@@ -147,7 +147,7 @@ class KerasPilot(ABC):
         :return:        array containing model outputs for the
                         standard models this is [angle, throttle]
         """
-        y = [record.get_entry('user/angle'), record.get_entry('user/throttle')]
+        y = record.get_entry('user/angle'), record.get_entry('user/throttle')
         return y
 
     def __str__(self):
@@ -199,7 +199,7 @@ class KerasCategorical(KerasPilot):
         R = self.throttle_range
         angle = linear_bin(y[0], N=15, offset=1, R=2.0)
         throttle = linear_bin(y[1], N=20, offset=0.0, R=R)
-        return [angle, throttle]
+        return angle, throttle
 
 
 class KerasLinear(KerasPilot):
@@ -241,7 +241,7 @@ class KerasInferred(KerasPilot):
 
     def lazy_record_transform_y(self, record):
         y = record.get_entry('user/angle')
-        return [y]
+        return y
 
 
 class KerasIMU(KerasPilot):
