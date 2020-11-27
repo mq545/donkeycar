@@ -126,18 +126,29 @@ class KerasPilot(ABC):
         """ Model used for training, could be just a sub part of the model"""
         return self.model
 
-    def get_x_y(self, record):
+    def lazy_record_transform_x(self, record):
         """
-        Return X, Y for a single record required in training where X is the
-        array of input variables and Y is the array of output variables
+        Return X for a single record required in training where X is the
+        array of input variables
 
         :param record:  LazyRecord with that data
-        :return:        2-Tuple of arrays containing X and Y, typically X is
-                        the image array and y is [angle, throttle]
+        :return:        array containing model inputs, typically called X,
+                        for the standard models is is just the image
         """
         x = [record.get_entry('cam/image_array')]
+        return x
+
+    def lazy_record_transform_y(self, record):
+        """
+        Return Y for a single record required in training where Y is the
+        array of output variables
+
+        :param record:  LazyRecord with that data
+        :return:        array containing model outputs for the
+                        standard models this is [angle, throttle]
+        """
         y = [record.get_entry('user/angle'), record.get_entry('user/throttle')]
-        return x, y
+        return y
 
     def __str__(self):
         """ For printing model initialisation """
@@ -183,12 +194,12 @@ class KerasCategorical(KerasPilot):
         angle = dk.utils.linear_unbin(angle_binned)
         return angle, throttle
 
-    def get_x_y(self, record):
-        x, y = super().get_x_y(record)
+    def lazy_record_transform_y(self, record):
+        y = super().lazy_record_transform_y(record)
         R = self.throttle_range
         angle = linear_bin(y[0], N=15, offset=1, R=2.0)
         throttle = linear_bin(y[1], N=20, offset=0.0, R=R)
-        return x, [angle, throttle]
+        return [angle, throttle]
 
 
 class KerasLinear(KerasPilot):
@@ -228,10 +239,9 @@ class KerasInferred(KerasPilot):
         steering = outputs[0]
         return steering[0], dk.utils.throttle(steering[0])
 
-    def get_x_y(self, record):
-        x = record.get_entry('cam/image_array')
+    def lazy_record_transform_y(self, record):
         y = record.get_entry('user/angle')
-        return [x], [y]
+        return [y]
 
 
 class KerasIMU(KerasPilot):
