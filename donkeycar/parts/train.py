@@ -1,7 +1,8 @@
 import os
 import numpy as np
 from abc import ABC, abstractmethod
-from tensorflow.python.keras.utils.data_utils import Sequence
+from collections.abc import Sequence
+from tensorflow.python.keras.utils.data_utils import Sequence as TfSequence
 from donkeycar.parts.tub_v2 import Tub
 from donkeycar.utils import get_model_by_type, load_image_arr, \
     train_test_split, normalize_image
@@ -10,10 +11,9 @@ DEFAULT_TRANSFORMATIONS = ['ImageReader', 'ImageNormalizer']
 
 
 class TubDataset(object):
-    '''
+    """
     Loads the dataset, and creates a train/test split.
-    '''
-
+    """
     def __init__(self, tub_paths, test_size=0.2, shuffle=True):
         self.tub_paths = tub_paths
         self.test_size = test_size
@@ -33,35 +33,94 @@ class TubDataset(object):
                                 test_size=self.test_size)
 
 
+class TubSequence(Sequence):
+    """ Converts sequence of records to lazy records. """
+
+    def __init__(self, model, config, records, train=True):
+        self.model = model
+        self.config = config
+        self.records = records
+        cfg_attr = 'TRAIN_TRANSFORMATIONS' if train else \
+            'VALIDATION_TRANSFORMATIONS'
+        transforms = getattr(self.config, cfg_attr, DEFAULT_TRANSFORMATIONS)
+        self.transformations = RecordTransformer.create(transforms, self.config)
+
+    def __len__(self):
+        return len(self.records)
+
+    def __getitem__(self, index):
+        record = self.records[index]
+        lazy_record = LazyRecord(record, self.model, self.transformations)
+        return lazy_record
+
+
+class BatchSequence(TfSequence):
+    def __init__(self, lazy_records, batch_size):
+        self.lazy_records = lazy_records
+        self.batch_size = batch_size
+
+    def __len__(self):
+        return len(self.lazy_records) // self.batch_size
+
+    def __getitem__(self, index):
+        count = 0
+        x = []
+        y = []
+        # collecting across the whole batch
+        while count < self.batch_size:
+            i = (index * self.batch_size) + count
+            if i >= len(self.lazy_records):
+                break
+            this_record = self.lazy_records[i]
+            single_x = this_record.get_x()
+            single_y = this_record.get_y()
+            x.append(single_x)
+            y.append(single_y)
+            count += 1
+
+        # reshape X, Y
+        def reshape(z):
+            dim = len(z[0])
+            if dim == 1:
+                return np.array([zi[0] for zi in z])
+            else:
+                ret_z = []
+                for j in range(dim):
+                    z_j = np.array([zi[j] for zi in z])
+                    ret_z.append(z_j)
+                return ret_z
+
+        x_res = reshape(x)
+        y_res = reshape(y)
+        return x_res, y_res
+
+
 class LazyRecord(object):
     """ Lazy record which wraps around record dictionary. There is no
         additional functionality here, it's all in the derived classes. """
-
-    def __init__(self, record, transforms):
+    def __init__(self, record, model, transforms):
+        self.model = model
         self.record = record
         self.transforms = transforms
 
-    def get_x_y(self, model):
-        """ Dispatch returning of X, Y to the model which will call
+    def get_x(self):
+        """ Dispatch returning of X to the model which will call
             get_entry() on the LazyRecord and from there drive the
             transformations. """
-        return model.get_x_y(self)
+        return self.model.lazy_record_transform_x(self)
+
+    def get_y(self):
+        """ Dispatch returning of Y to the model which will call
+            get_entry() on the LazyRecord and from there drive the
+            transformations. """
+        return self.model.lazy_record_transform_y(self)
 
     def get_entry(self, key):
         """ Get entry from record and run through transformations """
         val = self.record.get(key)
         for transform in self.transforms:
             val = transform.get(self.record, key, val)
-
         return val
-
-    def has_entry(self, key):
-        """ Check if record available """
-        return key in self.record
-
-    def _set_entry(self, key, val):
-        """ Set entry - should only be called in derived classes """
-        self.record[key] = val
 
 
 class RecordTransformer(ABC):
@@ -128,74 +187,6 @@ class ImageNormalizer(RecordTransformer):
         return normalize_image(val)
 
 
-class TubSequence(Sequence):
-    def __init__(self, keras_model, config, records):
-        self.keras_model = keras_model
-        self.config = config
-        self.records = records
-        self.batch_size = self.config.BATCH_SIZE
-        transforms = getattr(self.config, 'RECORD_TRANSFORMATIONS',
-                             DEFAULT_TRANSFORMATIONS)
-        self.transformations = RecordTransformer.create(transforms, self.config)
-
-    def __len__(self):
-        return len(self.records) // self.batch_size
-
-    def __getitem__(self, index):
-        count = 0
-        records = []
-
-        while count < self.batch_size:
-            i = (index * self.batch_size) + count
-            if i >= len(self.records):
-                break
-
-            record = LazyRecord(self.records[i], self.transformations)
-            records.append(record)
-            count += 1
-
-        x = []
-        y = []
-        # collecting across the whole batch
-        for record in records:
-            single_x, single_y = record.get_x_y(self.keras_model)
-            x.append(single_x)
-            y.append(single_y)
-
-        # reshape X, Y
-        def reshape(z):
-            dim = len(z[0])
-            if dim == 1:
-                return np.array([zi[0] for zi in z])
-            else:
-                ret_z = []
-                for j in range(dim):
-                    z_j = np.array([zi[j] for zi in z])
-                    ret_z.append(z_j)
-                return ret_z
-
-        x_res = reshape(x)
-        y_res = reshape(y)
-        return x_res, y_res
-
-
-class ImagePreprocessing(Sequence):
-    '''
-    A Sequence which wraps another Sequence with an Image Augumentation.
-    '''
-
-    def __init__(self, sequence, augmentation):
-        self.sequence = sequence
-        self.augumentation = augmentation
-
-    def __len__(self):
-        return len(self.sequence)
-
-    def __getitem__(self, index):
-        X, Y = self.sequence[index]
-        return self.augumentation.augment_images(X), Y
-
-
 def train(cfg, tub_paths, output_path, model_type):
     """
     Train the model
@@ -221,15 +212,18 @@ def train(cfg, tub_paths, output_path, model_type):
     print('Records # Training %s' % len(training_records))
     print('Records # Validation %s' % len(validation_records))
 
-    training = TubSequence(kl, cfg, training_records)
-    validation = TubSequence(kl, cfg, validation_records)
+    training = TubSequence(kl, cfg, training_records, train=True)
+    validation = TubSequence(kl, cfg, validation_records, train=False)
+    training_batch = BatchSequence(training, batch_size)
+    validation_batch = BatchSequence(validation, batch_size)
+
     assert len(validation) > 0, "Not enough validation data, decrease the " \
                                 "batch size or add more data."
 
-    history = kl.train(model_path=output_path, train_data=training,
-                       train_steps=len(training), batch_size=batch_size,
-                       validation_data=validation,
-                       validation_steps=len(validation),
+    history = kl.train(model_path=output_path, train_data=training_batch,
+                       train_steps=len(training_batch), batch_size=batch_size,
+                       validation_data=validation_batch,
+                       validation_steps=len(validation_batch),
                        epochs=cfg.MAX_EPOCHS, verbose=cfg.VERBOSE_TRAIN,
                        min_delta=cfg.MIN_DELTA,
                        patience=cfg.EARLY_STOP_PATIENCE)
