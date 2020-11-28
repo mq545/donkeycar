@@ -16,7 +16,7 @@ import math
 import random
 import time
 import signal
-
+from typing import List, Any, Tuple
 
 from PIL import Image
 import numpy as np
@@ -95,23 +95,6 @@ def binary_to_img(binary):
 
 def norm_img(img):
     return (img - img.mean() / np.std(img)) * ONE_BYTE_SCALE
-
-
-def create_video(img_dir_path, output_video_path):
-    import envoy
-    # Setup path to the images with telemetry.
-    full_path = os.path.join(img_dir_path, 'frame_*.png')
-
-    # Run ffmpeg.
-    command = ("""ffmpeg
-               -framerate 30/1
-               -pattern_type glob -i '%s'
-               -c:v libx264
-               -r 15
-               -pix_fmt yuv420p
-               -y
-               %s""" % (full_path, output_video_path))
-    response = envoy.run(command)
 
 
 def rgb2gray(rgb):
@@ -457,7 +440,9 @@ def get_test_img(model):
     return img.astype(np.uint8)
 
 
-def train_test_split(data_list, shuffle=True, test_size=0.2):
+def train_test_split(data_list: List[Any],
+                     shuffle: bool = True,
+                     test_size: float = 0.2) -> Tuple[List[Any], List[Any]]:
     '''
     take a list, split it into two sets while selecting a
     random element in order to shuffle the results.

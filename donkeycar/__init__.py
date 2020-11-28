@@ -11,7 +11,6 @@ if sys.version_info.major < 3:
 # The default recursion limits in CPython are too small.
 sys.setrecursionlimit(10**5)
 
-from . import parts
 from .vehicle import Vehicle
 from .memory import Memory
 from . import utils

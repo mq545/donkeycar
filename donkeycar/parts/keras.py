@@ -10,10 +10,14 @@ include one or more models to help direct the vehicles motion.
 
 from abc import ABC, abstractmethod
 import numpy as np
+from typing import Dict, Any, Tuple
+import donkeycar as dk
+from donkeycar.utils import normalize_image, linear_bin
 
 from tensorflow import keras
 from tensorflow.keras.layers import Input, Dense
-from tensorflow.keras.layers import Convolution2D, MaxPooling2D, BatchNormalization
+from tensorflow.keras.layers import Convolution2D, MaxPooling2D, \
+    BatchNormalization
 from tensorflow.keras.layers import Activation, Dropout, Flatten
 from tensorflow.keras.layers import LSTM
 from tensorflow.keras.layers import TimeDistributed as TD
@@ -22,8 +26,6 @@ from tensorflow.keras.backend import concatenate
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
 
-import donkeycar as dk
-from donkeycar.utils import normalize_image, linear_bin
 
 ONE_BYTE_SCALE = 1.0 / 255.0
 
@@ -33,24 +35,25 @@ class KerasPilot(ABC):
     Base class for Keras models that will provide steering and throttle to
     guide a car.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         self.model = None
         self.optimizer = "adam"
         print(f'Created {self}')
 
-    def load(self, model_path):
+    def load(self, model_path: str) -> None:
         self.model = keras.models.load_model(model_path, compile=False)
 
-    def load_weights(self, model_path, by_name=True):
+    def load_weights(self, model_path: str, by_name: bool = True) -> None:
         self.model.load_weights(model_path, by_name=by_name)
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         pass
 
-    def compile(self):
+    def compile(self) -> None:
         pass
 
-    def set_optimizer(self, optimizer_type, rate, decay):
+    def set_optimizer(self, optimizer_type: str,
+                      rate: float, decay: float) -> None:
         if optimizer_type == "adam":
             self.model.optimizer = keras.optimizers.Adam(lr=rate, decay=decay)
         elif optimizer_type == "sgd":
@@ -60,11 +63,11 @@ class KerasPilot(ABC):
         else:
             raise Exception("unknown optimizer type: %s" % optimizer_type)
 
-    def get_input_shape(self):
+    def get_input_shape(self) -> Tuple:
         assert self.model is not None, "Need to load model first"
         return self.model.inputs[0].shape
 
-    def run(self, img_arr, other_arr=None):
+    def run(self, img_arr: np.ndarray, other_arr: np.ndarray = None) -> Any:
         """
         Donkeycar parts interface to run the part in the loop.
 
@@ -78,7 +81,7 @@ class KerasPilot(ABC):
         return self.inference(norm_arr, other_arr)
 
     @abstractmethod
-    def inference(self, img_arr, other_arr):
+    def inference(self, img_arr: np.ndarray, other_arr: np.ndarray) -> Any:
         """
         Virtual method to be implemented by child classes for inferencing
 
@@ -90,9 +93,17 @@ class KerasPilot(ABC):
         """
         pass
 
-    def train(self, model_path, train_data, train_steps, batch_size,
-              validation_data, validation_steps, epochs, verbose=1,
-              min_delta=.0005, patience=5):
+    def train(self,
+              model_path: str,
+              train_data: 'BatchSequence',
+              train_steps: int,
+              batch_size: int,
+              validation_data: 'BatchSequence',
+              validation_steps: int,
+              epochs: int,
+              verbose: int = 1,
+              min_delta: float = .0005,
+              patience: int = 5) -> Dict[str, Any]:
         """
         trains the model
         """
@@ -122,11 +133,11 @@ class KerasPilot(ABC):
         )
         return history
 
-    def _get_train_model(self):
+    def _get_train_model(self) -> Model:
         """ Model used for training, could be just a sub part of the model"""
         return self.model
 
-    def lazy_record_transform_x(self, record):
+    def lazy_record_transform_x(self, record: 'LazyRecord') -> Any:
         """
         Return X for a single record required in training where X is the
         array of input variables
@@ -138,7 +149,7 @@ class KerasPilot(ABC):
         x = record.get_entry('cam/image_array')
         return x
 
-    def lazy_record_transform_y(self, record):
+    def lazy_record_transform_y(self, record: 'LazyRecord') -> Any:
         """
         Return Y for a single record required in training where Y is the
         array of output variables
@@ -150,7 +161,7 @@ class KerasPilot(ABC):
         y = record.get_entry('user/angle'), record.get_entry('user/throttle')
         return y
 
-    def __str__(self):
+    def __str__(self) -> str:
         """ For printing model initialisation """
         return type(self).__name__
 

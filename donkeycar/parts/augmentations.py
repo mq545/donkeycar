@@ -3,7 +3,7 @@ import numpy as np
 import imgaug.augmenters as iaa
 
 
-class Augumentations(object):
+class Augmentations(object):
     """
     Some ready to use image augumentations.
     """
@@ -73,12 +73,12 @@ class ImageAugmentation:
     @classmethod
     def create(cls, aug_type, config):
         if aug_type == 'CROP':
-            return Augumentations.crop(left=config.ROI_CROP_TOP,
-                                       right=config.ROI_CROP_TOP,
-                                       bottom=config.ROI_CROP_BOTTOM,
-                                       top=config.ROI_CROP_TOP)
+            return Augmentations.crop(left=config.ROI_CROP_TOP,
+                                      right=config.ROI_CROP_TOP,
+                                      bottom=config.ROI_CROP_BOTTOM,
+                                      top=config.ROI_CROP_TOP)
         elif aug_type == 'TRAPEZE':
-            return Augumentations.trapezoidal_mask(
+            return Augmentations.trapezoidal_mask(
                         lower_left=config.ROI_TRAPEZE_LL,
                         lower_right=config.ROI_TRAPEZE_LR,
                         upper_left=config.ROI_TRAPEZE_UL,
