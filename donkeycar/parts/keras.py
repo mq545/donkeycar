@@ -10,7 +10,7 @@ include one or more models to help direct the vehicles motion.
 
 from abc import ABC, abstractmethod
 import numpy as np
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional, Union
 import donkeycar as dk
 from donkeycar.utils import normalize_image, linear_bin
 
@@ -25,7 +25,7 @@ from tensorflow.keras.layers import Conv3D, MaxPooling3D, Conv2DTranspose
 from tensorflow.keras.backend import concatenate
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
-
+from tensorflow.keras.optimizers import Optimizer
 
 ONE_BYTE_SCALE = 1.0 / 255.0
 
@@ -36,7 +36,7 @@ class KerasPilot(ABC):
     guide a car.
     """
     def __init__(self) -> None:
-        self.model = None
+        self.model: Optional[Model] = None
         self.optimizer = "adam"
         print(f'Created {self}')
 
@@ -63,7 +63,7 @@ class KerasPilot(ABC):
         else:
             raise Exception("unknown optimizer type: %s" % optimizer_type)
 
-    def get_input_shape(self) -> Tuple:
+    def get_input_shape(self) -> Tuple[int, ...]:
         assert self.model is not None, "Need to load model first"
         return self.model.inputs[0].shape
 
@@ -119,7 +119,7 @@ class KerasPilot(ABC):
                             save_best_only=True,
                             verbose=verbose)]
 
-        history = model.fit(
+        history: Dict[str, Any] = model.fit(
             x=train_data,
             steps_per_epoch=train_steps,
             batch_size=batch_size,

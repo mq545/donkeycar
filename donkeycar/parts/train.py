@@ -37,7 +37,7 @@ class TubDataset(object):
         self.shuffle = shuffle
         self.tubs = [Tub(tub_path, read_only=True) for tub_path in
                      self.tub_paths]
-        self.records = list()
+        self.records: Records = list()
 
     def train_test_split(self) -> Tuple[Records, Records]:
         print('Loading tubs from paths %s' % self.tub_paths)
@@ -80,7 +80,7 @@ class RecordTransformer(ABC):
             return val
 
     @abstractmethod
-    def transform(self, record: Record, val) -> Any:
+    def transform(self, record: Record, val: Any) -> Any:
         """ This has to be implemented in derived classes"""
         pass
 
@@ -118,7 +118,7 @@ class ImageNormalizer(RecordTransformer):
     def __init__(self, config: Config) -> None:
         super().__init__('cam/image_array', config, False)
 
-    def transform(self, record: str, val: np.ndarray) -> np.ndarray:
+    def transform(self, record: Record, val: np.ndarray) -> np.ndarray:
         return normalize_image(val)
 
 
