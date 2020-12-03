@@ -69,6 +69,7 @@ setup(name='donkeycar',
               'pytest',
               'pytest-cov',
               'responses',
+              'mypy'
           ],
           'ci': ['codecov'],
           'tf': ['tensorflow>=2.2.0'],
