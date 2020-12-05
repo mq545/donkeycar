@@ -9,16 +9,20 @@ from donkeycar.utils import get_model_by_type, load_image_arr, \
     train_test_split, normalize_image
 from donkeycar.parts.keras import KerasPilot
 from donkeycar.config import Config
+from donkeycar.pipeline.sequence import TubDataset, TubSequence, Pipeline
+from donkeycar.pipeline.types import TubRecord
 
 # for typing
 Record = Dict[str, Any]
 Records = List[Record]
+X = TypeVar('X', covariant=True)
+Y = TypeVar('Y', covariant=True)
 
 
 DEFAULT_TRANSFORMATIONS = ['ImageReader', 'ImageNormalizer']
 
 
-class TubDataset(object):
+class TubDataset1(object):
     """
     Loads the dataset, and creates a train/test split.
     """
@@ -154,7 +158,7 @@ class LazyRecord(object):
         return val
 
 
-class TubSequence(Sequence):
+class TubSequence1(Sequence):
     """ Converts sequence of records to lazy records. """
     def __init__(self,
                  model: KerasPilot,
@@ -178,7 +182,7 @@ class TubSequence(Sequence):
         return lazy_record
 
 
-class BatchSequence(TfSequence):
+class BatchSequence1(TfSequence):
     def __init__(self,
                  lazy_records: TubSequence,
                  batch_size: int) -> None:
@@ -223,6 +227,51 @@ class BatchSequence(TfSequence):
         return x_res, y_res
 
 
+
+
+
+
+
+
+class BatchSequence(TfSequence):
+    def __init__(self,
+                 pipeline: Iterable[Tuple[X, Y]],
+                 batch_size: int) -> None:
+        self.pipeline = pipeline
+        self.batch_size = batch_size
+
+    def __len__(self) -> int:
+        return len(self.pipeline) // self.batch_size
+
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        count = 0
+        x = []
+        y = []
+        # collecting across the whole batch
+        while count < self.batch_size:
+            i = (index * self.batch_size) + count
+            if i >= len(self.pipeline):
+                break
+            single_x, single_y = self.pipeline[i]
+            x.append(single_x)
+            y.append(single_y)
+            count += 1
+
+        x_res = np.array(x)
+        y_res = np.array(y)
+        return x_res, y_res
+
+
+def make_tf_data(pipeline, batch_size):
+    gen = lambda: pipeline
+    dataset = tf.data.Dataset.from_generator(
+        generator=gen,
+        output_types=(tf.float64, tf.float64))
+        #output_shapes=(tf.TensorShape([120, 160, 3]), tf.TensorShape([2,])))
+
+    return dataset.repeat().batch(batch_size)
+
+
 def train(cfg: Config,
           tub_paths: Union[str, List[str]],
           output_path: str,
@@ -250,27 +299,56 @@ def train(cfg: Config,
         print(kl.model.summary())
 
     batch_size: int = cfg.BATCH_SIZE
-    dataset = TubDataset(tub_paths, test_size=(1. - cfg.TRAIN_TEST_SPLIT),
-                         shuffle=True)
-    training_records, validation_records = dataset.train_test_split()
+    # loading all records into a single data set
+    dataset = TubDataset(tub_paths, config=cfg)
+    records = dataset.load_records()
+    training_records, validation_records \
+        = train_test_split(records, shuffle=False,
+                           test_size=(1. - cfg.TRAIN_TEST_SPLIT))
     print('Records # Training %s' % len(training_records))
     print('Records # Validation %s' % len(validation_records))
 
-    training = TubSequence(kl, cfg, records=training_records, is_train=True)
-    validation = TubSequence(kl, cfg, records=validation_records,
-                             is_train=False)
-    training_batch = BatchSequence(training, batch_size)
-    validation_batch = BatchSequence(validation, batch_size)
+    # step 1 of pipeline, create the sequence:
+    training = TubSequence(records=training_records)
+    validation = TubSequence(records=validation_records)
 
-    assert len(validation) > 0, "Not enough validation data, decrease the " \
-                                "batch size or add more data."
+    # step 2 of pipeline, extract X, Y sequence from data
+    # get X from tub record:
+    def get_X(t: TubRecord) -> np.ndarray:
+        img_arr = t.image(cached=True, normalize=True)
+        return img_arr
+
+    def get_Y(t: TubRecord) -> np.ndarray:
+        y1 = t.underlying['user/angle']
+        y2 = t.underlying['user/throttle']
+        return np.array([y1, y2])
+
+    # TODO: training_pipe iterates only once and then is exhausted. That's
+    #  why keras training fails after one epoch.
+    # training_pipe = training.build_pipeline(get_X, get_Y)
+    # validation_pipe = validation.build_pipeline(get_X, get_Y)
+
+    # # this version is working.
+    training_pipe = Pipeline(training, get_X, get_Y)
+    validation_pipe = Pipeline(training, get_X, get_Y)
+
+    # step 3 of pipeline, transform into tf.data or tf.sequence
+    # using tf.Data disabled.
+    # dataset_train = make_tf_data(training_pipe, cfg.BATCH_SIZE)
+    # dataset_validate = make_tf_data(validation_pipe, cfg.BATCH_SIZE)
+
+    dataset_train = BatchSequence(training_pipe, cfg.BATCH_SIZE)
+    dataset_validate = BatchSequence(validation_pipe, cfg.BATCH_SIZE)
+
+    assert len(dataset_validate) > 0, \
+        "Not enough validation data, decrease the batch size or add more data."
 
     history = kl.train(model_path=output_path,
-                       train_data=training_batch,
-                       train_steps=len(training_batch),
+                       train_data=dataset_train,
+                       train_steps=len(dataset_train),
                        batch_size=batch_size,
-                       validation_data=validation_batch,
-                       validation_steps=len(validation_batch),
+                       validation_data=dataset_validate,
+                       validation_steps=len(dataset_validate),
                        epochs=cfg.MAX_EPOCHS,
                        verbose=cfg.VERBOSE_TRAIN,
                        min_delta=cfg.MIN_DELTA,
