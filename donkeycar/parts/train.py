@@ -2,7 +2,7 @@ import os
 import numpy as np
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import List, Dict, Any, Tuple, Union
+from typing import List, Dict, Any, Tuple, Union, TypeVar, Iterable
 from tensorflow.python.keras.utils.data_utils import Sequence as TfSequence
 from donkeycar.parts.tub_v2 import Tub
 from donkeycar.utils import get_model_by_type, load_image_arr, \
@@ -231,7 +231,7 @@ class BatchSequence1(TfSequence):
 
 
 
-
+#### new stuff here
 
 class BatchSequence(TfSequence):
     def __init__(self,
@@ -340,15 +340,26 @@ def train(cfg: Config,
     dataset_train = BatchSequence(training_pipe, cfg.BATCH_SIZE)
     dataset_validate = BatchSequence(validation_pipe, cfg.BATCH_SIZE)
 
+    # now compare to the legacy sequences
+    dataset1 = TubDataset1(tub_paths, shuffle=False,
+                           test_size=(1. - cfg.TRAIN_TEST_SPLIT))
+
+    training_records1, validation_records1 = dataset1.train_test_split()
+    training1 = TubSequence1(model=kl, config=cfg, records=training_records1)
+    validation1 = TubSequence1(model=kl, config=cfg, records=validation_records1)
+
+    dataset_train1 = BatchSequence1(training1, cfg.BATCH_SIZE)
+    dataset_validate1 = BatchSequence1(validation1, cfg.BATCH_SIZE)
+
     assert len(dataset_validate) > 0, \
         "Not enough validation data, decrease the batch size or add more data."
 
     history = kl.train(model_path=output_path,
-                       train_data=dataset_train,
-                       train_steps=len(dataset_train),
+                       train_data=dataset_train1,
+                       train_steps=len(dataset_train1),
                        batch_size=batch_size,
-                       validation_data=dataset_validate,
-                       validation_steps=len(dataset_validate),
+                       validation_data=dataset_validate1,
+                       validation_steps=len(dataset_validate1),
                        epochs=cfg.MAX_EPOCHS,
                        verbose=cfg.VERBOSE_TRAIN,
                        min_delta=cfg.MIN_DELTA,
