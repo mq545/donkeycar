@@ -299,59 +299,61 @@ def train(cfg: Config,
         print(kl.model.summary())
 
     batch_size: int = cfg.BATCH_SIZE
-    # loading all records into a single data set
-    dataset = TubDataset(tub_paths, config=cfg)
-    records = dataset.load_records()
-    training_records, validation_records \
-        = train_test_split(records, shuffle=False,
-                           test_size=(1. - cfg.TRAIN_TEST_SPLIT))
-    print('Records # Training %s' % len(training_records))
-    print('Records # Validation %s' % len(validation_records))
-
-    # step 1 of pipeline, create the sequence:
-    training = TubSequence(records=training_records)
-    validation = TubSequence(records=validation_records)
-
-    # step 2 of pipeline, extract X, Y sequence from data
-    # get X from tub record:
-    def get_X(t: TubRecord) -> np.ndarray:
-        img_arr = t.image(cached=True, normalize=True)
-        return img_arr
-
-    def get_Y(t: TubRecord) -> np.ndarray:
-        y1 = t.underlying['user/angle']
-        y2 = t.underlying['user/throttle']
-        return np.array([y1, y2])
-
-    # TODO: training_pipe iterates only once and then is exhausted. That's
-    #  why keras training fails after one epoch.
-    # training_pipe = training.build_pipeline(get_X, get_Y)
-    # validation_pipe = validation.build_pipeline(get_X, get_Y)
-
-    # # this version is working.
-    training_pipe = Pipeline(training, get_X, get_Y)
-    validation_pipe = Pipeline(training, get_X, get_Y)
-
-    # step 3 of pipeline, transform into tf.data or tf.sequence
-    # using tf.Data disabled.
-    # dataset_train = make_tf_data(training_pipe, cfg.BATCH_SIZE)
-    # dataset_validate = make_tf_data(validation_pipe, cfg.BATCH_SIZE)
-
-    dataset_train = BatchSequence(training_pipe, cfg.BATCH_SIZE)
-    dataset_validate = BatchSequence(validation_pipe, cfg.BATCH_SIZE)
+    # # loading all records into a single data set
+    # dataset = TubDataset(tub_paths, config=cfg)
+    # records = dataset.load_records()
+    # training_records, validation_records \
+    #     = train_test_split(records, shuffle=False,
+    #                        test_size=(1. - cfg.TRAIN_TEST_SPLIT))
+    # print('Records # Training %s' % len(training_records))
+    # print('Records # Validation %s' % len(validation_records))
+    #
+    # # step 1 of pipeline, create the sequence:
+    # training = TubSequence(records=training_records)
+    # validation = TubSequence(records=validation_records)
+    #
+    # # step 2 of pipeline, extract X, Y sequence from data
+    # # get X from tub record:
+    # def get_X(t: TubRecord) -> np.ndarray:
+    #     img_arr = t.image(cached=True, normalize=True)
+    #     return img_arr
+    #
+    # def get_Y(t: TubRecord) -> np.ndarray:
+    #     y1 = t.underlying['user/angle']
+    #     y2 = t.underlying['user/throttle']
+    #     return np.array([y1, y2])
+    #
+    # # TODO: training_pipe iterates only once and then is exhausted. That's
+    # #  why keras training fails after one epoch.
+    # # training_pipe = training.build_pipeline(get_X, get_Y)
+    # # validation_pipe = validation.build_pipeline(get_X, get_Y)
+    #
+    # # # this version is working.
+    # training_pipe = Pipeline(training, get_X, get_Y)
+    # validation_pipe = Pipeline(training, get_X, get_Y)
+    #
+    # # step 3 of pipeline, transform into tf.data or tf.sequence
+    # # using tf.Data disabled.
+    # # dataset_train = make_tf_data(training_pipe, cfg.BATCH_SIZE)
+    # # dataset_validate = make_tf_data(validation_pipe, cfg.BATCH_SIZE)
+    #
+    # dataset_train = BatchSequence(training_pipe, cfg.BATCH_SIZE)
+    # dataset_validate = BatchSequence(validation_pipe, cfg.BATCH_SIZE)
 
     # now compare to the legacy sequences
     dataset1 = TubDataset1(tub_paths, shuffle=False,
                            test_size=(1. - cfg.TRAIN_TEST_SPLIT))
 
     training_records1, validation_records1 = dataset1.train_test_split()
+    print('Records # Training %s' % len(training_records1))
+    print('Records # Validation %s' % len(validation_records1))
     training1 = TubSequence1(model=kl, config=cfg, records=training_records1)
     validation1 = TubSequence1(model=kl, config=cfg, records=validation_records1)
 
     dataset_train1 = BatchSequence1(training1, cfg.BATCH_SIZE)
     dataset_validate1 = BatchSequence1(validation1, cfg.BATCH_SIZE)
 
-    assert len(dataset_validate) > 0, \
+    assert len(dataset_validate1) > 0, \
         "Not enough validation data, decrease the batch size or add more data."
 
     history = kl.train(model_path=output_path,
