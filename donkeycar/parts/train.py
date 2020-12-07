@@ -66,11 +66,10 @@ class BatchSequence(TfSequence):
 
 
 def make_tf_data(pipeline, batch_size):
-    gen = lambda: pipeline
     dataset = tf.data.Dataset.from_generator(
-        generator=gen,
-        output_types=(tf.float64, tf.float64),
-        output_shapes=(tf.TensorShape([120, 160, 3]), tf.TensorShape([2,])))
+        generator=lambda: pipeline,
+        output_types=(tf.float64, {'n_outputs0': tf.float64,
+                                   'n_outputs1': tf.float64}))
 
     return dataset.repeat().batch(batch_size)
 
@@ -124,7 +123,7 @@ def train(cfg: Config,
     def get_Y(t: TubRecord) -> Tuple[float, float]:
         y1 = t.underlying['user/angle']
         y2 = t.underlying['user/throttle']
-        return y1, y2
+        return {'n_outputs0': y1, 'n_outputs1': y2}
 
     # TODO: training_pipe iterates only once and then is exhausted. That's
     #  why keras training fails after one epoch.
@@ -136,17 +135,17 @@ def train(cfg: Config,
     validation_pipe = Pipeline(validation, get_X, get_Y)
 
     # step 3 of pipeline, transform into tf.data or tf.sequence
-    # using tf.Data disabled
-    # dataset_train = make_tf_data(training_pipe, cfg.BATCH_SIZE)
-    # dataset_validate = make_tf_data(validation_pipe, cfg.BATCH_SIZE)
-    # train_size = math.ceil(len(training_pipe) / cfg.BATCH_SIZE)
-    # val_size = math.ceil(len(validation_pipe) / cfg.BATCH_SIZE)
+    # here using tf.data
+    dataset_train = make_tf_data(training_pipe, cfg.BATCH_SIZE)
+    dataset_validate = make_tf_data(validation_pipe, cfg.BATCH_SIZE)
+    train_size = math.ceil(len(training_pipe) / cfg.BATCH_SIZE)
+    val_size = math.ceil(len(validation_pipe) / cfg.BATCH_SIZE)
 
     # here using tf.sequence
-    dataset_train = BatchSequence(training_pipe, cfg.BATCH_SIZE)
-    dataset_validate = BatchSequence(validation_pipe, cfg.BATCH_SIZE)
-    train_size = len(dataset_train)
-    val_size = len(dataset_validate)
+    # dataset_train = BatchSequence(training_pipe, cfg.BATCH_SIZE)
+    # dataset_validate = BatchSequence(validation_pipe, cfg.BATCH_SIZE)
+    # train_size = len(dataset_train)
+    # val_size = len(dataset_validate)
 
     assert val_size > 0, \
         "Not enough validation data, decrease the batch size or add more data."
