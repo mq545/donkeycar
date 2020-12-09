@@ -1,120 +1,217 @@
-from typing import Iterable, List, Callable, Tuple, TypeVar, cast, Any, \
-    Union, Iterator, Generic
+from typing import Any, Callable, Generic, Iterable, Iterator, List, Sized, Tuple, TypeVar
 
-from donkeycar.parts.tub_v2 import Tub
-from donkeycar.pipeline.types import TubRecord, TubRecordDict
+import math
+import numpy as np
+from donkeycar.pipeline.types import TubRecord
 
+# Note: Be careful when re-using `TypeVar`s.
+# If you are not-consistent mypy gets easily confused.
+
+R = TypeVar('R', covariant=True)
 X = TypeVar('X', covariant=True)
 Y = TypeVar('Y', covariant=True)
-GX = TypeVar('GX', covariant=True)
 XOut = TypeVar('XOut', covariant=True)
 YOut = TypeVar('YOut', covariant=True)
 
 
+class SizedIterator(Generic[X], Iterator[X], Sized):
+    def __init__(self) -> None:
+        # This is a protocol type without explicitly using a `Protocol`
+        # Using `Protocol` requires Python 3.7
+        pass
 
-class TubDataset(object):
-    def __init__(self, paths: List[str], config: Any) -> None:
-        self.paths = paths
-        self.config = config
-        self.tubs = [Tub(path) for path in self.paths]
-        self.records: List[TubRecord] = list()
-
-    def load_records(self) -> List[TubRecord]:
-        self.records.clear()
-        for tub in self.tubs:
-            for record in tub:
-                underlying = cast(TubRecordDict, record)
-                tub_record = TubRecord(self.config, tub.base_path, underlying)
-                self.records.append(tub_record)
-
-        return self.records
-
-    def __len__(self) -> int:
-        return len(self.records)
-
-    def __getitem__(self, item: Union[int, slice]) -> TubRecord:
-        return self.records[item]
-
-    def __iter__(self) -> Iterator[TubRecord]:
-        for record in self.records:
-            yield record
+    def batched(self, batch_size: int) -> Iterator[List[X]]:
+        # Produces a batch of results
+        # Ideally we should be able to return a `SizedIterator` but `mypy`
+        # won't resolve this kind of recursive type
+        raise NotImplemented
 
 
-
-class TubSequence(object):
+class TubSeqIterator(SizedIterator[TubRecord]):
     def __init__(self, records: List[TubRecord]) -> None:
-        self.records = records
-
-    def __iter__(self) -> Iterable[TubRecord]:
-        return iter(self.records)
+        self.records = records or list()
+        self.current_index = 0
 
     def __len__(self):
         return len(self.records)
 
-    def __getitem__(self, item):
-        return self.records[item]
+    def __iter__(self) -> SizedIterator[TubRecord]:
+        return self
+
+    def __next__(self):
+        if self.current_index >= len(self.records):
+            raise StopIteration('No more records')
+
+        record = self.records[self.current_index]
+        self.current_index += 1
+        return record
+
+    next = __next__
+
+
+class TfmIterator(Generic[R, XOut, YOut],  SizedIterator[Tuple[XOut, YOut]]):
+    def __init__(self,
+                 iterator: Iterable[R],
+                 x_transform: Callable[[R], XOut],
+                 y_transform: Callable[[R], YOut]) -> None:
+
+        self.iterator = BaseTfmIterator_(
+            iterator=iterator, x_transform=x_transform, y_transform=y_transform)
+
+    def __len__(self):
+        return len(self.iterator)
+
+    def __iter__(self) -> SizedIterator[Tuple[XOut, YOut]]:
+        return self
+
+    def __next__(self):
+        return next(self.iterator)
+
+    def batched(self, batch_size=64) -> SizedIterator[List[Tuple[XOut, YOut]]]:
+        return self.iterator.batched(batch_size=batch_size)
+
+
+class TfmTupleIterator(Generic[X, Y, XOut, YOut],  SizedIterator[Tuple[XOut, YOut]]):
+    def __init__(self,
+                 iterator: Iterable[Tuple[X, Y]],
+                 x_transform: Callable[[X], XOut],
+                 y_transform: Callable[[Y], YOut]) -> None:
+
+        self.iterator = BaseTfmIterator_(
+            iterator=iterator, x_transform=x_transform, y_transform=y_transform)
+
+    def __len__(self):
+        return len(self.iterator)
+
+    def __iter__(self) -> SizedIterator[Tuple[XOut, YOut]]:
+        return self
+
+    def __next__(self):
+        return next(self.iterator)
+
+    def batched(self, batch_size=64) -> SizedIterator[List[Tuple[XOut, YOut]]]:
+        return self.iterator.batched(batch_size=batch_size)
+
+
+class BaseTfmIterator_(Generic[XOut, YOut],  SizedIterator[Tuple[XOut, YOut]]):
+    '''
+    A basic transforming iterator.
+    Do no use this class directly.
+    '''
+
+    def __init__(self,
+                 # Losing a bit of type safety here for a common implementation
+                 iterator: Iterable[Any],
+                 x_transform: Callable[[R], XOut],
+                 y_transform: Callable[[R], YOut]) -> None:
+
+        self.iterator = iter(iterator)
+        self.x_transform = x_transform
+        self.y_transform = y_transform
+
+    def __len__(self):
+        return len(self.iterator)
+
+    def __iter__(self) -> SizedIterator[Tuple[XOut, YOut]]:
+        return self
+
+    def __next__(self):
+        record = next(self.iterator)
+        if (isinstance(record, tuple) and len(record) == 2):
+            x, y = record
+            return self.x_transform(x), self.y_transform(y)
+        else:
+            return self.x_transform(record), self.y_transform(record)
+
+    def batched(self, batch_size=64) -> SizedIterator[List[Tuple[XOut, YOut]]]:
+        batched_iterator = BatchedIterator(self, batch_size=batch_size)
+        return batched_iterator
+
+
+class BatchedIterator(SizedIterator[List[R]]):
+    def __init__(self, pipeline: SizedIterator[R], batch_size: int) -> None:
+        self.pipeline = pipeline
+        self.batch_size = batch_size
+        self.consumed = 0
+
+    def __len__(self):
+        return math.ceil(len(self.pipeline) / self.batch_size)
+
+    def __next__(self) -> List[R]:
+        count = 0
+        batch = list()
+        while count < self.batch_size and self.consumed < len(self.pipeline):
+            r = next(self.pipeline)
+            batch.append(r)
+            count += 1
+            self.consumed += 1
+
+        if len(batch) > 0:
+            return batch
+        else:
+            raise StopIteration('No more records')
+
+    def __iter__(self) -> Iterator[List[R]]:
+        return self
+
+
+class TubSequence(Iterable[TubRecord]):
+    def __init__(self, records: List[TubRecord]) -> None:
+        self.records = records
+
+    def __iter__(self) -> SizedIterator[TubRecord]:
+        return TubSeqIterator(self.records)
+
+    def __len__(self):
+        return len(self.records)
 
     def build_pipeline(self,
                        x_transform: Callable[[TubRecord], X],
-                       y_transform: Callable[[TubRecord], Y]) -> Iterable[Tuple[X, Y]]:
-
-        iterator = self.__iter__()
-        for record in iterator:
-            x = x_transform(record)
-            y = y_transform(record)
-            yield x, y
+                       y_transform: Callable[[TubRecord], Y]) -> SizedIterator[Tuple[X, Y]]:
+        return TfmIterator(self, x_transform=x_transform, y_transform=y_transform)
 
     @classmethod
     def map_pipeline(
             cls,
             x_transform: Callable[[X], XOut],
             y_transform: Callable[[Y], YOut],
-            pipeline: Iterable[Tuple[X, Y]]) -> Iterable[Tuple[XOut, YOut]]:
-
-        for record in iter(pipeline):
-            x, y = record
-            yield x_transform(x), y_transform(y)
+            pipeline: SizedIterator[Tuple[X, Y]]) -> SizedIterator[Tuple[XOut, YOut]]:
+        return TfmTupleIterator(pipeline, x_transform=x_transform, y_transform=y_transform)
 
     @classmethod
     def map_pipeline_factory(
             cls,
             x_transform: Callable[[X], XOut],
             y_transform: Callable[[Y], YOut],
-            factory: Callable[[], Iterable[Tuple[X, Y]]]) -> Iterable[Tuple[XOut, YOut]]:
+            factory: Callable[[], SizedIterator[Tuple[X, Y]]]) -> SizedIterator[Tuple[XOut, YOut]]:
 
         pipeline = factory()
         return cls.map_pipeline(pipeline=pipeline, x_transform=x_transform, y_transform=y_transform)
 
 
-class BasePipeline(Generic[GX], Iterable):
-
-    def __init__(self) -> None:
-        pass
-
-    def __len__(self) -> int:
-        pass
-
-    def __iter__(self) -> Iterator[GX]:
-        pass
+R1 = TypeVar('R1', covariant=True)
+R2 = TypeVar('R2', covariant=True)
 
 
-class Pipeline(BasePipeline[Tuple[X, Y]]):
-    def __init__(self,
-                 sequence: Union[TubSequence, BasePipeline],
-                 x_transform: Callable[[TubRecord], X],
-                 y_transform: Callable[[TubRecord], Y]) -> None:
-        super().__init__()
-        self.sequence = sequence
-        self.x_transform = x_transform
-        self.y_transform = y_transform
-
-    def __iter__(self) -> Iterator[Tuple[X, Y]]:
-        for record in self.sequence:
-            yield self.x_transform(record), self.y_transform(record)
+class Reshaper(Generic[R1, R2], SizedIterator[Tuple[np.ndarray, np.ndarray]]):
+    def __init__(self, batched: SizedIterator[List[Tuple[R1, R2]]]) -> None:
+        self.batch = batched
 
     def __len__(self) -> int:
-        return len(self.sequence)
+        return len(self.batch)
 
-    def __getitem__(self, item):
-        record = self.sequence[item]
-        return self.x_transform(record), self.y_transform(record)
+    def __next__(self):
+        records: List[Tuple[R1, R2]] = next(self.batch)
+        X: List[R1] = list()
+        Y: List[R2] = list()
+        for record in records:
+            x, y = record
+            X.append(x)
+            Y.append(y)
+
+        return np.array(X), np.array(Y)
+
+    def __iter__(self) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        return self
+
+    next = __next__

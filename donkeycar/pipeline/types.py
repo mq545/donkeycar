@@ -1,9 +1,12 @@
 import os
-from typing import Any, List, Optional, cast
+from typing import Any, List, Optional, TypeVar, cast
 
+import numpy as np
 from donkeycar.parts.tub_v2 import Tub
 from donkeycar.utils import load_image_arr, normalize_image
 from typing_extensions import TypedDict
+
+X = TypeVar('X', covariant=True)
 
 TubRecordDict = TypedDict(
     'TubRecordDict',
@@ -12,8 +15,12 @@ TubRecordDict = TypedDict(
         'user/angle': float,
         'user/throttle': float,
         'user/mode': str,
-        'imu/accel': Optional[List[float]],
-        'imu/gyro': Optional[List[float]],
+        'imu/acl_x': Optional[float],
+        'imu/acl_y': Optional[float],
+        'imu/acl_z': Optional[float],
+        'imu/gyr_x': Optional[float],
+        'imu/gyr_y': Optional[float],
+        'imu/gyr_z': Optional[float],
     }
 )
 
@@ -25,20 +32,36 @@ class TubRecord(object):
         self.underlying = underlying
         self._image: Optional[Any] = None
 
-    def image(self, cached=True, normalize=False) -> Any:
+    def image(self, cached=True, normalize=False) -> np.ndarray:
+        if not self._image:
+            image_path = self.underlying['cam/image_array']
+            full_path = os.path.join(self.base_path, 'images', image_path)
+            _image = load_image_arr(full_path, cfg=self.config)
+            if normalize:
+                _image = normalize_image(_image)
+            if cached:
+                self._image = _image
+            return _image
+        else:
+            return self._image
 
-        def _get_image(cached=True):
-            if self._image is None:
-                image_path = self.underlying['cam/image_array']
-                full_path = os.path.join(self.base_path, 'images', image_path)
-                _image = load_image_arr(full_path, cfg=self.config)
-                if cached:
-                    self._image = _image
-                return _image
-            else:
-                return self._image
+    def __repr__(self) -> str:
+        return repr(self.underlying)
 
-        img_arr = _get_image(cached=cached)
-        if normalize:
-            img_arr = normalize_image(img_arr)
-        return img_arr
+
+class TubDataset(object):
+    def __init__(self, paths: List[str], config: Any) -> None:
+        self.paths = paths
+        self.config = config
+        self.tubs = [Tub(path) for path in self.paths]
+        self.records: List[TubRecord] = list()
+
+    def load_records(self) -> List[TubRecord]:
+        self.records.clear()
+        for tub in self.tubs:
+            for record in tub:
+                underlying = cast(TubRecordDict, record)
+                tub_record = TubRecord(self.config, tub.base_path, underlying)
+                self.records.append(tub_record)
+
+        return self.records
