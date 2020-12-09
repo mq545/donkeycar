@@ -137,30 +137,6 @@ class KerasPilot(ABC):
         """ Model used for training, could be just a sub part of the model"""
         return self.model
 
-    def lazy_record_transform_x(self, record: 'LazyRecord') -> Any:
-        """
-        Return X for a single record required in training where X is the
-        array of input variables
-
-        :param record:  LazyRecord with that data
-        :return:        array containing model inputs, typically called X,
-                        for the standard models is is just the image
-        """
-        x = record.get_entry('cam/image_array')
-        return x
-
-    def lazy_record_transform_y(self, record: 'LazyRecord') -> Any:
-        """
-        Return Y for a single record required in training where Y is the
-        array of output variables
-
-        :param record:  LazyRecord with that data
-        :return:        array containing model outputs for the
-                        standard models this is [angle, throttle]
-        """
-        y = record.get_entry('user/angle'), record.get_entry('user/throttle')
-        return y
-
     def __str__(self) -> str:
         """ For printing model initialisation """
         return type(self).__name__
@@ -249,11 +225,6 @@ class KerasInferred(KerasPilot):
         outputs = self.model.predict(img_arr)
         steering = outputs[0]
         return steering[0], dk.utils.throttle(steering[0])
-
-    def get_X_Y(self, record):
-        X = record.get_entry('cam/image_array')
-        Y = record.get_entry('user/angle')
-        return X, Y
 
 
 class KerasIMU(KerasPilot):

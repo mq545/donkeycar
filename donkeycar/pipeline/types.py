@@ -33,17 +33,17 @@ class TubRecord(object):
         self._image: Optional[Any] = None
 
     def image(self, cached=True, normalize=False) -> np.ndarray:
-        if not self._image:
+        if self._image is None:
             image_path = self.underlying['cam/image_array']
             full_path = os.path.join(self.base_path, 'images', image_path)
             _image = load_image_arr(full_path, cfg=self.config)
-            if normalize:
-                _image = normalize_image(_image)
             if cached:
                 self._image = _image
-            return _image
         else:
-            return self._image
+            _image = self._image
+        if normalize:
+            _image = normalize_image(_image)
+        return _image
 
     def __repr__(self) -> str:
         return repr(self.underlying)

@@ -215,3 +215,26 @@ class Reshaper(Generic[R1, R2], SizedIterator[Tuple[np.ndarray, np.ndarray]]):
         return self
 
     next = __next__
+
+
+
+class Pipeline:
+    def __init__(self,
+                 sequence: TubSequence,
+                 x_transform: Callable[[TubRecord], X],
+                 y_transform: Callable[[TubRecord], Y]) -> None:
+        super().__init__()
+        self.sequence = sequence
+        self.x_transform = x_transform
+        self.y_transform = y_transform
+
+    def __iter__(self) -> Iterator[Tuple[X, Y]]:
+        for record in self.sequence:
+            yield self.x_transform(record), self.y_transform(record)
+
+    def __len__(self) -> int:
+        return len(self.sequence)
+
+    def __getitem__(self, item):
+        record = self.sequence[item]
+        return self.x_transform(record), self.y_transform(record)

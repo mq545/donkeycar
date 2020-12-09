@@ -12,8 +12,8 @@ from donkeycar.utils import get_model_by_type, load_image_arr, \
     train_test_split, normalize_image
 from donkeycar.parts.keras import KerasPilot
 from donkeycar.config import Config
-from donkeycar.pipeline.sequence import TubDataset, TubSequence, Pipeline
-from donkeycar.pipeline.types import TubRecord
+from donkeycar.pipeline.sequence import TubSequence, Pipeline
+from donkeycar.pipeline.types import TubRecord, TubDataset
 
 # for typing
 Record = Dict[str, Any]
