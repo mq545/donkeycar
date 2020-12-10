@@ -13,7 +13,7 @@ import donkeycar as dk
 from donkeycar.management.joystick_creator import CreateJoystick
 from donkeycar.management.tub import TubManager
 from donkeycar.parts.tflite import keras_model_to_tflite
-from donkeycar.parts.train import train
+from donkeycar.pipeline.training import train
 from donkeycar.utils import *
 
 PACKAGE_PATH = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
