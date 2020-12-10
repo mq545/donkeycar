@@ -100,13 +100,9 @@ def train(cfg: Config,
     if cfg.PRINT_MODEL_SUMMARY:
         print(kl.model.summary())
 
-    batch_size: int = cfg.BATCH_SIZE
     # loading all records into a single data set
-    dataset = TubDataset(tub_paths, config=cfg)
-    records = dataset.load_records()
-    training_records, validation_records \
-        = train_test_split(records, shuffle=True,
-                           test_size=(1. - cfg.TRAIN_TEST_SPLIT))
+    dataset = TubDataset(cfg, tub_paths)
+    training_records, validation_records = dataset.train_test_split()
     print('Records # Training %s' % len(training_records))
     print('Records # Validation %s' % len(validation_records))
 
@@ -153,7 +149,7 @@ def train(cfg: Config,
     history = kl.train(model_path=output_path,
                        train_data=dataset_train,
                        train_steps=train_size,
-                       batch_size=batch_size,
+                       batch_size=cfg.BATCH_SIZE,
                        validation_data=dataset_validate,
                        validation_steps=val_size,
                        epochs=cfg.MAX_EPOCHS,
