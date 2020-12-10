@@ -25,6 +25,7 @@ from donkeycar.pipeline.sequence import TubRecord
 from donkeycar.pipeline.sequence import TubSequence as PipelineSequence
 from donkeycar.pipeline.types import TubDataset
 from donkeycar.utils import get_model_by_type, linear_bin, train_test_split
+import tensorflow as tf
 from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.python.keras.utils.data_utils import Sequence
 
@@ -46,34 +47,43 @@ class BatchSequence(Sequence):
         self.is_linear = type(self.keras_model) is KerasLinear
         self.is_inferred = type(self.keras_model) is KerasInferred
         self.is_categorical = type(self.keras_model) is KerasCategorical
+        print("Pipeline model")
+        print(self.is_linear, self.is_categorical, self.is_inferred)
 
         # Define transformations
         def x_transform(record: TubRecord):
             # Using an identity transform to delay image loading
-            return record
+            img_arr = record.image(cached=True, normalize=True)
+            return img_arr
 
         def y_categorical(record: TubRecord):
-            angle: np.ndarray = record.underlying['user/angle']
-            throttle: np.ndarray = record.underlying['user/throttle']
+            angle: float = record.underlying['user/angle']
+            throttle: float = record.underlying['user/throttle']
             R = self.config.MODEL_CATEGORICAL_MAX_THROTTLE_RANGE
             angle = linear_bin(angle, N=15, offset=1, R=2.0)
             throttle = linear_bin(throttle, N=20, offset=0.0, R=R)
-            return angle, throttle
+            return {'angle_out': angle, 'throttle_out': throttle}
 
         def y_inferred(record: TubRecord):
-            return record.underlying['user/angle']
+            angle: float = record.underlying['user/angle']
+            return {'n_outputs0': angle}
 
         def y_linear(record: TubRecord):
             angle: float = record.underlying['user/angle']
             throttle: float = record.underlying['user/throttle']
-            return angle, throttle
+            return {'n_outputs0': angle, 'n_outputs1': throttle}
 
         if self.is_linear:
             self.pipeline = list(self.sequence.build_pipeline(x_transform=x_transform, y_transform=y_linear))
+            self.output_types = (tf.float64, {'n_outputs0': tf.float64,
+                                              'n_outputs1': tf.float64})
         elif self.is_categorical:
             self.pipeline = list(self.sequence.build_pipeline(x_transform=x_transform, y_transform=y_categorical))
+            self.output_types = (tf.float64, {'angle_out': tf.float64,
+                                              'throttle_out': tf.float64})
         else:
             self.pipeline = list(self.sequence.build_pipeline(x_transform=x_transform, y_transform=y_inferred))
+            self.output_types = (tf.float64, {'n_outputs0': tf.float64})
 
     def __len__(self):
         if not self.pipeline:
@@ -109,6 +119,12 @@ class BatchSequence(Sequence):
         else:
             Y = [np.array(angles), np.array(throttles)]
         return X, Y
+
+    def make_tf_data(self):
+        dataset = tf.data.Dataset.from_generator(
+            generator=lambda: self.pipeline,
+            output_types=self.output_types)
+        return dataset.repeat().batch(self.batch_size)
 
 
 class ImagePreprocessing(Sequence):
@@ -153,9 +169,15 @@ def train(cfg, tub_paths, output_path, model_type):
     print('Records # Training %s' % len(training_records))
     print('Records # Validation %s' % len(validation_records))
 
-    training = BatchSequence(kl, cfg, training_records)
-    validation = BatchSequence(kl, cfg, validation_records)
-    assert len(validation) > 0, "Not enough validation data, decrease the " \
+    training_pipe = BatchSequence(kl, cfg, training_records)
+    validation_pipe = BatchSequence(kl, cfg, validation_records)
+
+    dataset_train = training_pipe.make_tf_data()
+    dataset_validate = validation_pipe.make_tf_data()
+    train_size = len(training_pipe)
+    val_size = len(validation_pipe)
+
+    assert val_size > 0, "Not enough validation data, decrease the " \
                                 "batch size or add more data."
 
     # Setup early stoppage callbacks
@@ -170,12 +192,12 @@ def train(cfg, tub_paths, output_path, model_type):
     ]
 
     history = kl.model.fit(
-        x=training,
-        steps_per_epoch=len(training),
+        x=dataset_train,
+        steps_per_epoch=train_size,
         batch_size=batch_size,
         callbacks=callbacks,
-        validation_data=validation,
-        validation_steps=len(validation),
+        validation_data=dataset_validate,
+        validation_steps=val_size,
         epochs=cfg.MAX_EPOCHS,
         verbose=cfg.VERBOSE_TRAIN,
         workers=1,

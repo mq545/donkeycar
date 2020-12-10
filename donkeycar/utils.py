@@ -392,7 +392,7 @@ def get_model_by_type(model_type, cfg):
     '''
     from donkeycar.parts.keras import KerasRNN_LSTM, KerasBehavioral, \
         KerasCategorical, KerasIMU, KerasLinear, Keras3D_CNN, \
-        KerasLocalizer, KerasLatent
+        KerasLocalizer, KerasLatent, KerasInferred
     from donkeycar.parts.tflite import TFLitePilot
 
     if model_type is None:
@@ -405,6 +405,9 @@ def get_model_by_type(model_type, cfg):
     elif model_type == "categorical":
         kl = KerasCategorical(input_shape=input_shape,
                               throttle_range=cfg.MODEL_CATEGORICAL_MAX_THROTTLE_RANGE)
+
+    elif model_type == 'inferred':
+        kl = KerasInferred(input_shape=input_shape)
     elif model_type == "tflite_linear":
         kl = TFLitePilot()
     elif model_type == "tensorrt_linear":
@@ -415,7 +418,8 @@ def get_model_by_type(model_type, cfg):
         kl = TensorRTLinear(cfg=cfg)
     else:
         raise Exception("Unknown model type {:}, supported types are "
-                        "linear, categorical, tflite_linear, tensorrt_linear"
+                        "linear, categorical, inferred, tflite_linear, "
+                        "tensorrt_linear"
                         .format(model_type))
 
     return kl
