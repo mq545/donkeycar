@@ -18,7 +18,6 @@ from typing import Any, List, Optional, Tuple, cast
 import donkeycar
 import numpy as np
 from docopt import docopt
-from donkeycar.parts.keras import KerasCategorical, KerasInferred, KerasLinear
 from donkeycar.parts.tflite import keras_model_to_tflite
 from donkeycar.parts.tub_v2 import Tub
 from donkeycar.pipeline.sequence import TubRecord
@@ -30,24 +29,21 @@ from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.python.keras.utils.data_utils import Sequence
 
 
-class BatchSequence(Sequence):
-    # Improve batched_pipeline to make most of this go away as well.
+class BatchSequence(object):
     # The idea is to have a shallow sequence with types that can hydrate
     # themselves to an ndarray
 
-    def __init__(self, keras_model, config, records: List[TubRecord] = list()):
-        self.keras_model = keras_model
+    def __init__(self, model, config, records: List[TubRecord] = list()):
+        self.model = model
         self.config = config
-        self.records = records
-        self.sequence = PipelineSequence(self.records)
+        self.sequence = PipelineSequence(records)
         self.batch_size = self.config.BATCH_SIZE
-        self.consumed = 0
 
         self.pipeline = list(self.sequence.build_pipeline(
-                x_transform=self.keras_model.x_transform,
-                y_transform=self.keras_model.y_transform))
-        self.types = self.keras_model.output_types()
-        self.shapes = self.keras_model.output_shapes()
+                x_transform=self.model.x_transform,
+                y_transform=self.model.y_transform))
+        self.types = self.model.output_types()
+        self.shapes = self.model.output_shapes()
 
     def __len__(self):
         return math.ceil(len(self.pipeline) / self.batch_size)
