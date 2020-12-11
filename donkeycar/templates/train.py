@@ -16,16 +16,13 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple, cast
 
 import donkeycar
-import numpy as np
 from docopt import docopt
 from donkeycar.parts.tflite import keras_model_to_tflite
-from donkeycar.parts.tub_v2 import Tub
 from donkeycar.pipeline.sequence import TubRecord
 from donkeycar.pipeline.sequence import TubSequence as PipelineSequence
 from donkeycar.pipeline.types import TubDataset
-from donkeycar.utils import get_model_by_type, linear_bin, train_test_split
+from donkeycar.utils import get_model_by_type
 import tensorflow as tf
-from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.python.keras.utils.data_utils import Sequence
 
 
@@ -109,29 +106,17 @@ def train(cfg, tub_paths, output_path, model_type):
     assert val_size > 0, "Not enough validation data, decrease the " \
                                 "batch size or add more data."
 
-    # Setup early stoppage callbacks
-    callbacks = [
-        EarlyStopping(monitor='val_loss', patience=cfg.EARLY_STOP_PATIENCE),
-        ModelCheckpoint(
-            filepath=output_path,
-            monitor='val_loss',
-            save_best_only=True,
-            verbose=1,
-        )
-    ]
+    history = kl.train(model_path=output_path,
+                       train_data=dataset_train,
+                       train_steps=train_size,
+                       batch_size=cfg.BATCH_SIZE,
+                       validation_data=dataset_validate,
+                       validation_steps=val_size,
+                       epochs=cfg.MAX_EPOCHS,
+                       verbose=cfg.VERBOSE_TRAIN,
+                       min_delta=cfg.MIN_DELTA,
+                       patience=cfg.EARLY_STOP_PATIENCE)
 
-    history = kl.model.fit(
-        x=dataset_train,
-        steps_per_epoch=train_size,
-        batch_size=batch_size,
-        callbacks=callbacks,
-        validation_data=dataset_validate,
-        validation_steps=val_size,
-        epochs=cfg.MAX_EPOCHS,
-        verbose=cfg.VERBOSE_TRAIN,
-        workers=1,
-        use_multiprocessing=False
-    )
     return history
 
 
