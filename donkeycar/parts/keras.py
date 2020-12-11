@@ -13,7 +13,9 @@ import numpy as np
 from typing import Dict, Any, Tuple, Optional, Union
 import donkeycar as dk
 from donkeycar.utils import normalize_image, linear_bin
+from donkeycar.pipeline.types import TubRecord
 
+import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.layers import Input, Dense
 from tensorflow.keras.layers import Convolution2D, MaxPooling2D, \
@@ -63,7 +65,7 @@ class KerasPilot(ABC):
         else:
             raise Exception("unknown optimizer type: %s" % optimizer_type)
 
-    def get_input_shape(self) -> Tuple[int, ...]:
+    def get_input_shape(self) -> tf.TensorShape:
         assert self.model is not None, "Need to load model first"
         return self.model.inputs[0].shape
 
@@ -137,6 +139,22 @@ class KerasPilot(ABC):
         """ Model used for training, could be just a sub part of the model"""
         return self.model
 
+    def x_transform(self, record: TubRecord):
+        # Using an identity transform to delay image loading
+        img_arr = record.image(cached=True, normalize=True)
+        return img_arr
+
+    @abstractmethod
+    def y_transform(self, record: TubRecord):
+        pass
+
+    @abstractmethod
+    def output_types(self):
+        pass
+
+    def output_shapes(self):
+        return None
+
     def __str__(self) -> str:
         """ For printing model initialisation """
         return type(self).__name__
@@ -181,12 +199,25 @@ class KerasCategorical(KerasPilot):
         angle = dk.utils.linear_unbin(angle_binned)
         return angle, throttle
 
-    def lazy_record_transform_y(self, record):
-        y = super().lazy_record_transform_y(record)
-        R = self.throttle_range
-        angle = linear_bin(y[0], N=15, offset=1, R=2.0)
-        throttle = linear_bin(y[1], N=20, offset=0.0, R=R)
-        return angle, throttle
+    def y_transform(self, record: TubRecord):
+        angle: float = record.underlying['user/angle']
+        throttle: float = record.underlying['user/throttle']
+        angle = linear_bin(angle, N=15, offset=1, R=2.0)
+        throttle = linear_bin(throttle, N=20, offset=0.0, R=self.throttle_range)
+        return {'angle_out': angle, 'throttle_out': throttle}
+
+    def output_types(self):
+        types = (tf.float64, {'angle_out': tf.float64,
+                              'throttle_out': tf.float64})
+        return types
+
+    def output_shapes(self):
+        # need to cut off None from [None, 120, 160, 3] tensor shape
+        img_shape = tf.TensorShape(self.get_input_shape().as_list()[1:])
+        shapes = (img_shape,
+                  {'angle_out': tf.TensorShape([15]),
+                   'throttle_out': tf.TensorShape([20])})
+        return shapes
 
 
 class KerasLinear(KerasPilot):
@@ -210,6 +241,24 @@ class KerasLinear(KerasPilot):
         throttle = outputs[1]
         return steering[0][0], throttle[0][0]
 
+    def y_transform(self, record: TubRecord):
+        angle: float = record.underlying['user/angle']
+        throttle: float = record.underlying['user/throttle']
+        return {'n_outputs0': angle, 'n_outputs1': throttle}
+
+    def output_types(self):
+        types = (tf.float64, {'n_outputs0': tf.float64,
+                              'n_outputs1': tf.float64})
+        return types
+
+    def output_shapes(self):
+        # need to cut off None from [None, 120, 160, 3] tensor shape
+        img_shape = tf.TensorShape(self.get_input_shape().as_list()[1:])
+        shapes = (img_shape,
+                  {'n_outputs0': tf.TensorShape([]),
+                   'n_outputs1': tf.TensorShape([])})
+        return shapes
+
 
 class KerasInferred(KerasPilot):
     def __init__(self, num_outputs=1, input_shape=(120, 160, 3)):
@@ -225,6 +274,20 @@ class KerasInferred(KerasPilot):
         outputs = self.model.predict(img_arr)
         steering = outputs[0]
         return steering[0], dk.utils.throttle(steering[0])
+
+    def y_transform(self, record: TubRecord):
+        angle: float = record.underlying['user/angle']
+        return {'n_outputs0': angle}
+
+    def output_types(self):
+        types = (tf.float64, {'n_outputs0': tf.float64})
+        return types
+
+    def output_shapes(self):
+        # need to cut off None from [None, 120, 160, 3] tensor shape
+        img_shape = tf.TensorShape(self.get_input_shape().as_list()[1:])
+        shapes = (img_shape, {'n_outputs0': tf.TensorShape([])})
+        return shapes
 
 
 class KerasIMU(KerasPilot):

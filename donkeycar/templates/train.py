@@ -32,7 +32,8 @@ from tensorflow.python.keras.utils.data_utils import Sequence
 
 class BatchSequence(Sequence):
     # Improve batched_pipeline to make most of this go away as well.
-    # The idea is to have a shallow sequence with types that can hydrate themselves to an ndarray
+    # The idea is to have a shallow sequence with types that can hydrate
+    # themselves to an ndarray
 
     def __init__(self, keras_model, config, records: List[TubRecord] = list()):
         self.keras_model = keras_model
@@ -42,98 +43,14 @@ class BatchSequence(Sequence):
         self.batch_size = self.config.BATCH_SIZE
         self.consumed = 0
 
-        # Keep track of model type
-        # Eventually move this part into the model itself.
-        self.is_linear = type(self.keras_model) is KerasLinear
-        self.is_inferred = type(self.keras_model) is KerasInferred
-        self.is_categorical = type(self.keras_model) is KerasCategorical
-        print("Pipeline model")
-        print(self.is_linear, self.is_categorical, self.is_inferred)
-
-        # Define transformations
-        def x_transform(record: TubRecord):
-            # Using an identity transform to delay image loading
-            img_arr = record.image(cached=True, normalize=True)
-            return img_arr
-
-        def y_categorical(record: TubRecord):
-            angle: float = record.underlying['user/angle']
-            throttle: float = record.underlying['user/throttle']
-            R = self.config.MODEL_CATEGORICAL_MAX_THROTTLE_RANGE
-            angle = linear_bin(angle, N=15, offset=1, R=2.0)
-            throttle = linear_bin(throttle, N=20, offset=0.0, R=R)
-            return {'angle_out': angle, 'throttle_out': throttle}
-
-        def y_inferred(record: TubRecord):
-            angle: float = record.underlying['user/angle']
-            return {'n_outputs0': angle}
-
-        def y_linear(record: TubRecord):
-            angle: float = record.underlying['user/angle']
-            throttle: float = record.underlying['user/throttle']
-            return {'n_outputs0': angle, 'n_outputs1': throttle}
-
-        if self.is_linear:
-            self.pipeline = list(self.sequence.build_pipeline(
-                x_transform=x_transform,
-                y_transform=y_linear))
-            self.types = (tf.float64, {'n_outputs0': tf.float64,
-                                       'n_outputs1': tf.float64})
-            self.shapes = (tf.TensorShape([120, 160, 3]),
-                           {'n_outputs0': tf.TensorShape([]),
-                            'n_outputs1': tf.TensorShape([])})
-
-        elif self.is_categorical:
-            self.pipeline = list(self.sequence.build_pipeline(
-                x_transform=x_transform,
-                y_transform=y_categorical))
-            self.types = (tf.float64, {'angle_out': tf.float64,
-                                       'throttle_out': tf.float64})
-            self.shapes = (tf.TensorShape([120, 160, 3]),
-                           {'angle_out': tf.TensorShape([15]),
-                            'throttle_out': tf.TensorShape([20])})
-        else:
-            self.pipeline = list(self.sequence.build_pipeline(
-                x_transform=x_transform,
-                y_transform=y_inferred))
-            self.types = (tf.float64, {'n_outputs0': tf.float64})
-            self.shapes = (tf.TensorShape([120, 160, 3]),
-                           {'n_outputs0': tf.TensorShape([])})
+        self.pipeline = list(self.sequence.build_pipeline(
+                x_transform=self.keras_model.x_transform,
+                y_transform=self.keras_model.y_transform))
+        self.types = self.keras_model.output_types()
+        self.shapes = self.keras_model.output_shapes()
 
     def __len__(self):
-        if not self.pipeline:
-            raise RuntimeError('Pipeline is not initialized')
-
         return math.ceil(len(self.pipeline) / self.batch_size)
-
-    def __getitem__(self, index):
-        count = 0
-        images = []
-        angles = []
-        throttles = []
-        while count < self.batch_size:
-            i = (index * self.batch_size) + count
-            if i >= len(self.pipeline):
-                break
-
-            record, r = self.pipeline[i]
-            images.append(record.image(cached=False, normalize=True))
-
-            if isinstance(r, tuple):
-                angle, throttle = r
-                angles.append(angle)
-                throttles.append(throttle)
-            else:
-                angles.append(r)
-
-            count += 1
-
-        X = np.array(images)
-        if self.is_inferred:
-            Y = np.array(angles)
-        else:
-            Y = [np.array(angles), np.array(throttles)]
-        return X, Y
 
     def make_tf_data(self):
         dataset = tf.data.Dataset.from_generator(
