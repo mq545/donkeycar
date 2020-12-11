@@ -74,16 +74,31 @@ class BatchSequence(Sequence):
             return {'n_outputs0': angle, 'n_outputs1': throttle}
 
         if self.is_linear:
-            self.pipeline = list(self.sequence.build_pipeline(x_transform=x_transform, y_transform=y_linear))
-            self.output_types = (tf.float64, {'n_outputs0': tf.float64,
-                                              'n_outputs1': tf.float64})
+            self.pipeline = list(self.sequence.build_pipeline(
+                x_transform=x_transform,
+                y_transform=y_linear))
+            self.types = (tf.float64, {'n_outputs0': tf.float64,
+                                       'n_outputs1': tf.float64})
+            self.shapes = (tf.TensorShape([120, 160, 3]),
+                           {'n_outputs0': tf.TensorShape([]),
+                            'n_outputs1': tf.TensorShape([])})
+
         elif self.is_categorical:
-            self.pipeline = list(self.sequence.build_pipeline(x_transform=x_transform, y_transform=y_categorical))
-            self.output_types = (tf.float64, {'angle_out': tf.float64,
-                                              'throttle_out': tf.float64})
+            self.pipeline = list(self.sequence.build_pipeline(
+                x_transform=x_transform,
+                y_transform=y_categorical))
+            self.types = (tf.float64, {'angle_out': tf.float64,
+                                       'throttle_out': tf.float64})
+            self.shapes = (tf.TensorShape([120, 160, 3]),
+                           {'angle_out': tf.TensorShape([15]),
+                            'throttle_out': tf.TensorShape([20])})
         else:
-            self.pipeline = list(self.sequence.build_pipeline(x_transform=x_transform, y_transform=y_inferred))
-            self.output_types = (tf.float64, {'n_outputs0': tf.float64})
+            self.pipeline = list(self.sequence.build_pipeline(
+                x_transform=x_transform,
+                y_transform=y_inferred))
+            self.types = (tf.float64, {'n_outputs0': tf.float64})
+            self.shapes = (tf.TensorShape([120, 160, 3]),
+                           {'n_outputs0': tf.TensorShape([])})
 
     def __len__(self):
         if not self.pipeline:
@@ -123,7 +138,8 @@ class BatchSequence(Sequence):
     def make_tf_data(self):
         dataset = tf.data.Dataset.from_generator(
             generator=lambda: self.pipeline,
-            output_types=self.output_types)
+            output_types=self.types,
+            output_shapes=self.shapes)
         return dataset.repeat().batch(self.batch_size)
 
 

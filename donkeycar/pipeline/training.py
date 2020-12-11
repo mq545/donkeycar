@@ -9,7 +9,7 @@ import tensorflow as tf
 from tensorflow.python.keras.utils.data_utils import Sequence as TfSequence
 from donkeycar.parts.tub_v2 import Tub
 from donkeycar.utils import get_model_by_type, load_image_arr, \
-    train_test_split, normalize_image
+    train_test_split, normalize_image, linear_bin
 from donkeycar.parts.keras import KerasPilot
 from donkeycar.config import Config
 from donkeycar.pipeline.sequence import TubSequence, Pipeline
@@ -65,15 +65,6 @@ class BatchSequence(TfSequence):
         return x_res, y_res
 
 
-def make_tf_data(pipeline, batch_size):
-    dataset = tf.data.Dataset.from_generator(
-        generator=lambda: pipeline,
-        output_types=(tf.float64, {'n_outputs0': tf.float64,
-                                   'n_outputs1': tf.float64}))
-
-    return dataset.repeat().batch(batch_size)
-
-
 def train(cfg: Config,
           tub_paths: Union[str, List[str]],
           output_path: str,
@@ -116,10 +107,39 @@ def train(cfg: Config,
         img_arr = t.image(cached=True, normalize=True)
         return img_arr
 
-    def get_Y(t: TubRecord) -> Tuple[float, float]:
-        y1 = t.underlying['user/angle']
-        y2 = t.underlying['user/throttle']
-        return {'n_outputs0': y1, 'n_outputs1': y2}
+    def get_Y(t: TubRecord) -> Dict[str, Any]:
+        if train_type == 'linear':
+            y1 = t.underlying['user/angle']
+            y2 = t.underlying['user/throttle']
+            return {'n_outputs0': y1, 'n_outputs1': y2}
+        elif train_type == 'categorical':
+            y1 = t.underlying['user/angle']
+            y2 = t.underlying['user/throttle']
+            R = cfg.MODEL_CATEGORICAL_MAX_THROTTLE_RANGE
+            angle = linear_bin(y1, N=15, offset=1, R=2.0)
+            throttle = linear_bin(y2, N=20, offset=0.0, R=R)
+            return {'angle_out': angle, 'throttle_out': throttle}
+
+    def make_tf_data(pipeline, batch_size):
+        if train_type == 'linear':
+            output_types = (tf.float64, {'n_outputs0': tf.float64,
+                                         'n_outputs1': tf.float64})
+            shapes = (tf.TensorShape([120, 160, 3]),
+                      {'n_outputs0': tf.TensorShape([]),
+                       'n_outputs1': tf.TensorShape([])})
+        elif train_type == 'categorical':
+            output_types = (tf.float64, {'angle_out': tf.float64,
+                                         'throttle_out': tf.float64})
+            shapes = (tf.TensorShape([120, 160, 3]),
+                      {'angle_out': tf.TensorShape([15]),
+                       'throttle_out': tf.TensorShape([20])})
+
+        dataset = tf.data.Dataset.from_generator(
+            generator=lambda: pipeline,
+            output_types=output_types,
+            output_shapes=shapes)
+
+        return dataset.repeat().batch(batch_size)
 
     # TODO: training_pipe iterates only once and then is exhausted. That's
     #  why keras training fails after one epoch.
