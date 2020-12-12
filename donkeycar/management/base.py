@@ -12,7 +12,6 @@ from progress.bar import IncrementalBar
 import donkeycar as dk
 from donkeycar.management.joystick_creator import CreateJoystick
 from donkeycar.management.tub import TubManager
-from donkeycar.parts.tflite import keras_model_to_tflite
 from donkeycar.pipeline.training import train
 from donkeycar.utils import *
 
@@ -426,24 +425,6 @@ class ShowPredictionPlots(BaseCommand):
 
 class Train(BaseCommand):
 
-    def train(self, cfg, tubs, model, model_type):
-        model_name, model_ext = os.path.splitext(model)
-        is_tflite = model_ext == '.tflite'
-        if is_tflite:
-            model = f'{model_name}.h5'
-
-        if not model_type:
-            model_type = cfg.DEFAULT_MODEL_TYPE
-
-        tubs = tubs.split(',')
-        data_paths = [Path(os.path.expanduser(tub)).absolute().as_posix()
-                      for tub in tubs]
-        output_path = os.path.expanduser(model)
-        history = train(cfg, data_paths, output_path, model_type)
-        if is_tflite:
-            tflite_model_path = f'{os.path.splitext(output_path)[0]}.tflite'
-            keras_model_to_tflite(output_path, tflite_model_path)
-
     def parse_args(self, args):
         parser = argparse.ArgumentParser(prog='train', usage='%(prog)s [options]')
         parser.add_argument('--tub', nargs='+', help='tub data for training')
@@ -457,7 +438,7 @@ class Train(BaseCommand):
         args = self.parse_args(args)
         args.tub = ','.join(args.tub)
         cfg = load_config(args.config)
-        self.train(cfg, args.tub, args.model, args.type)
+        train(cfg, args.tub, args.model, args.type)
 
 
 def execute_from_command_line():
