@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import imgaug.augmenters as iaa
+from donkeycar.config import Config
 
 
 class Augmentations(object):
@@ -71,7 +72,7 @@ class ImageAugmentation:
         self.augmentations = iaa.Sequential(augmentations)
 
     @classmethod
-    def create(cls, aug_type, config):
+    def create(cls, aug_type: str, config: Config) -> iaa.meta.Augmenter:
         if aug_type == 'CROP':
             return Augmentations.crop(left=config.ROI_CROP_TOP,
                                       right=config.ROI_CROP_TOP,
@@ -92,8 +93,8 @@ class ImageAugmentation:
 
         elif aug_type == 'BLUR':
             interval = getattr(config, 'AUG_BLUR_RANGE', (0.0, 3.0))
-            iaa.GaussianBlur(sigma=interval)
+            return iaa.GaussianBlur(sigma=interval)
 
-    def run(self, img_arr):
+    def augment(self, img_arr):
         aug_img_arr = self.augmentations.augment_image(img_arr)
         return aug_img_arr

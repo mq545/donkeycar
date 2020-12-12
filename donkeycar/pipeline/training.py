@@ -5,55 +5,64 @@ from typing import Any, List, Optional, Tuple, cast
 
 from donkeycar.parts.tflite import keras_model_to_tflite
 from donkeycar.pipeline.sequence import TubRecord
-from donkeycar.pipeline.sequence import TubSequence as PipelineSequence
+from donkeycar.pipeline.sequence import TubSequence
 from donkeycar.pipeline.types import TubDataset
-from donkeycar.utils import get_model_by_type
+from donkeycar.pipeline.augmentations import ImageAugmentation
+from donkeycar.utils import get_model_by_type, normalize_image
 import tensorflow as tf
 from tensorflow.python.keras.utils.data_utils import Sequence
 
 
 class BatchSequence(object):
-    # The idea is to have a shallow sequence with types that can hydrate
-    # themselves to an ndarray
+    """
+    The idea is to have a shallow sequence with types that can hydrate
+    themselves to np.ndarray initially and later into the types required by
+    tf.data (i.e. dictionaries or np.ndarrays.
+    """
 
-    def __init__(self, model, config, records: List[TubRecord] = list()):
+    def __init__(self, model, config, records: List[TubRecord], is_train: bool):
         self.model = model
         self.config = config
-        self.sequence = PipelineSequence(records)
+        self.sequence = TubSequence(records)
         self.batch_size = self.config.BATCH_SIZE
-
-        self.pipeline = list(self.sequence.build_pipeline(
+        self.is_train = is_train
+        self.augmentation = ImageAugmentation(config)
+        self.pipeline = self.sequence.build_pipeline(
                 x_transform=self.model.x_transform,
-                y_transform=self.model.y_transform))
+                y_transform=self.model.y_transform)
+        self.pipeline_out = self._make_pipeline()
         self.types = self.model.output_types()
         self.shapes = self.model.output_shapes()
 
     def __len__(self):
-        return math.ceil(len(self.pipeline) / self.batch_size)
+        return math.ceil(len(self.pipeline_out) / self.batch_size)
+
+    def _make_pipeline(self):
+        """ This can be overridden if more complicated pipelines are
+            required """
+        # 1. We use image augmentation, it might do nothing, if there is no
+        # augmentation in the config. It also does nothing in validation.
+        # This works on uint8 images.
+        pipeline_augment = self.sequence.map_pipeline(
+            pipeline=self.pipeline,
+            x_transform=lambda x: self.augmentation.augment(x) if
+                                  self.is_train else x,
+            y_transform=lambda y: y)
+
+        # 2. we scale images to normalised float64 to be model inputs
+        pipeline_normalise = list(self.sequence.map_pipeline(
+            pipeline=pipeline_augment,
+            x_transform=lambda x: normalize_image(x),
+            y_transform=lambda y: y))
+
+        return pipeline_normalise
 
     def make_tf_data(self):
         dataset = tf.data.Dataset.from_generator(
-            generator=lambda: self.pipeline,
+            generator=lambda: self.pipeline_out,
             output_types=self.types,
             output_shapes=self.shapes)
         return dataset.repeat().batch(self.batch_size)
-
-
-class ImagePreprocessing(Sequence):
-    '''
-    A Sequence which wraps another Sequence with an Image Augumentation.
-    '''
-
-    def __init__(self, sequence, augmentation):
-        self.sequence = sequence
-        self.augumentation = augmentation
-
-    def __len__(self):
-        return len(self.sequence)
-
-    def __getitem__(self, index):
-        X, Y = self.sequence[index]
-        return self.augumentation.augment_images(X), Y
 
 
 def train(cfg, tub_paths, model, model_type):
@@ -87,8 +96,8 @@ def train(cfg, tub_paths, model, model_type):
     print('Records # Training %s' % len(training_records))
     print('Records # Validation %s' % len(validation_records))
 
-    training_pipe = BatchSequence(kl, cfg, training_records)
-    validation_pipe = BatchSequence(kl, cfg, validation_records)
+    training_pipe = BatchSequence(kl, cfg, training_records, is_train=True)
+    validation_pipe = BatchSequence(kl, cfg, validation_records, is_train=False)
 
     dataset_train = training_pipe.make_tf_data()
     dataset_validate = validation_pipe.make_tf_data()
