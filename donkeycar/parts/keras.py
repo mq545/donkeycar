@@ -144,13 +144,11 @@ class KerasPilot(ABC):
         img_arr = record.image(cached=True, normalize=True)
         return img_arr
 
-    @abstractmethod
     def y_transform(self, record: TubRecord):
-        pass
+        raise NotImplemented(f'{self} not ready yet for new training pipeline')
 
-    @abstractmethod
     def output_types(self):
-        pass
+        raise NotImplemented(f'{self} not ready yet for new training pipeline')
 
     def output_shapes(self):
         return None
@@ -177,7 +175,6 @@ class KerasCategorical(KerasPilot):
     def __init__(self, input_shape=(120, 160, 3), throttle_range=0.5):
         super().__init__()
         self.model = default_categorical(input_shape)
-        self.compile()
         self.throttle_range = throttle_range
 
     def compile(self):
@@ -229,7 +226,6 @@ class KerasLinear(KerasPilot):
     def __init__(self, num_outputs=2, input_shape=(120, 160, 3)):
         super().__init__()
         self.model = default_n_linear(num_outputs, input_shape)
-        self.compile()
 
     def compile(self):
         self.model.compile(optimizer=self.optimizer, loss='mse')
@@ -264,7 +260,6 @@ class KerasInferred(KerasPilot):
     def __init__(self, num_outputs=1, input_shape=(120, 160, 3)):
         super().__init__()
         self.model = default_n_linear(num_outputs, input_shape)
-        self.compile()
 
     def compile(self):
         self.model.compile(optimizer=self.optimizer, loss='mse')
@@ -323,7 +318,6 @@ class KerasIMU(KerasPilot):
         self.model = default_imu(num_outputs=num_outputs,
                                  num_imu_inputs=num_imu_inputs,
                                  input_shape=input_shape)
-        self.compile()
 
     def compile(self):
         self.model.compile(optimizer=self.optimizer, loss='mse')
@@ -336,6 +330,11 @@ class KerasIMU(KerasPilot):
         throttle = outputs[1]
         return steering[0][0], throttle[0][0]
 
+    def y_transform(self, record: TubRecord):
+        angle: float = record.underlying['user/angle']
+        throttle: float = record.underlying['user/throttle']
+        return {'n_out0': angle, 'n_out1': throttle}
+
 
 class KerasBehavioral(KerasPilot):
     """
@@ -346,14 +345,13 @@ class KerasBehavioral(KerasPilot):
         super(KerasBehavioral, self).__init__()
         self.model = default_bhv(num_bvh_inputs=num_behavior_inputs,
                                  input_shape=input_shape)
-        self.compile()
 
     def compile(self):
         self.model.compile(optimizer=self.optimizer, loss='mse')
         
     def inference(self, img_arr, state_array):
         img_arr = img_arr.reshape((1,) + img_arr.shape)
-        bhv_arr = np.array(state_array).reshape(1,len(state_array))
+        bhv_arr = np.array(state_array).reshape(1, len(state_array))
         angle_binned, throttle = self.model.predict([img_arr, bhv_arr])
         # In order to support older models with linear throttle,we will test for
         # shape of throttle to see if it's the newer binned version.
@@ -366,6 +364,13 @@ class KerasBehavioral(KerasPilot):
         angle_unbinned = dk.utils.linear_unbin(angle_binned)
         return angle_unbinned, throttle
 
+    def y_transform(self, record: TubRecord):
+        angle: float = record.underlying['user/angle']
+        throttle: float = record.underlying['user/throttle']
+        angle = linear_bin(angle, N=15, offset=1, R=2.0)
+        throttle = linear_bin(throttle, N=20, offset=0.0, R=0.5)
+        return {'angle_out': angle, 'throttle_out': throttle}
+
 
 class KerasLocalizer(KerasPilot):
     """
@@ -376,7 +381,6 @@ class KerasLocalizer(KerasPilot):
         super().__init__()
         self.model = default_loc(num_locations=num_locations,
                                  input_shape=input_shape)
-        self.compile()
 
     def compile(self):
         self.model.compile(optimizer=self.optimizer, metrics=['acc'],
@@ -387,6 +391,7 @@ class KerasLocalizer(KerasPilot):
         angle, throttle, track_loc = self.model.predict([img_arr])
         loc = np.argmax(track_loc[0])
         return angle, throttle, loc
+
 
 
 def conv2d(filters, kernel, strides, layer_num, activation='relu'):
@@ -556,7 +561,6 @@ class KerasRNN_LSTM(KerasPilot):
                               input_shape=input_shape)
         self.seq_length = seq_length
         self.img_seq = []
-        self.compile()
         self.optimizer = "rmsprop"
 
     def compile(self):
@@ -578,7 +582,7 @@ class KerasRNN_LSTM(KerasPilot):
         steering = outputs[0][0]
         throttle = outputs[0][1]
         return steering, throttle
-  
+
 
 def rnn_lstm(seq_length=3, num_outputs=2, input_shape=(120, 160, 3)):
     # add sequence length dimensions as keras time-distributed expects shape
@@ -622,7 +626,6 @@ class Keras3D_CNN(KerasPilot):
                                   num_outputs=num_outputs)
         self.seq_length = seq_length
         self.img_seq = []
-        self.compile()
 
     def compile(self):
         self.model.compile(loss='mean_squared_error',
@@ -721,7 +724,6 @@ class KerasLatent(KerasPilot):
     def __init__(self, num_outputs=2, input_shape=(120, 160, 3)):
         super().__init__()
         self.model = default_latent(num_outputs, input_shape)
-        self.compile()
 
     def compile(self):
         loss = {"img_out": "mse", "n_outputs0": "mse", "n_outputs1": "mse"}

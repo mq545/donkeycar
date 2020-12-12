@@ -95,8 +95,8 @@ def train(cfg, tub_paths, model, model_type):
     train_size = len(training_pipe)
     val_size = len(validation_pipe)
 
-    assert val_size > 0, "Not enough validation data, decrease the " \
-                                "batch size or add more data."
+    assert val_size > 0, "Not enough validation data, decrease the batch " \
+                         "size or add more data."
 
     history = kl.train(model_path=output_path,
                        train_data=dataset_train,
@@ -112,3 +112,5 @@ def train(cfg, tub_paths, model, model_type):
     if is_tflite:
         tflite_model_path = f'{os.path.splitext(output_path)[0]}.tflite'
         keras_model_to_tflite(output_path, tflite_model_path)
+
+    return history

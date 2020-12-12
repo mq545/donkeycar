@@ -54,12 +54,12 @@ class TubDataset(object):
     Loads the dataset, and creates a train/test split.
     '''
 
-    def __init__(self, config, tub_paths, shuffle=True):
+    def __init__(self, config: Any, tub_paths: List[str], shuffle: bool = True):
         self.config = config
         self.tub_paths = tub_paths
         self.shuffle = shuffle
-        self.tubs = [Tub(tub_path, read_only=True)
-                     for tub_path in self.tub_paths]
+        self.tubs: List[Tub] = [Tub(tub_path, read_only=True)
+                                for tub_path in self.tub_paths]
         self.records: List[TubRecord] = list()
 
     def train_test_split(self) -> Tuple[List[TubRecord], List[TubRecord]]:
