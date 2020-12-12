@@ -141,7 +141,7 @@ class KerasPilot(ABC):
 
     def x_transform(self, record: TubRecord):
         # Using an identity transform to delay image loading
-        img_arr = record.image(cached=True, normalize=True)
+        img_arr = record.image(cached=True)
         return img_arr
 
     def y_transform(self, record: TubRecord):

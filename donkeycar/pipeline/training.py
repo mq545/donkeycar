@@ -10,7 +10,6 @@ from donkeycar.pipeline.types import TubDataset
 from donkeycar.pipeline.augmentations import ImageAugmentation
 from donkeycar.utils import get_model_by_type, normalize_image
 import tensorflow as tf
-from tensorflow.python.keras.utils.data_utils import Sequence
 
 
 class BatchSequence(object):

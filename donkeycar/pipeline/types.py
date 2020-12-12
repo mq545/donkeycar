@@ -41,8 +41,6 @@ class TubRecord(object):
                 self._image = _image
         else:
             _image = self._image
-        # if normalize:
-        #     _image = normalize_image(_image)
         return _image
 
     def __repr__(self) -> str:
